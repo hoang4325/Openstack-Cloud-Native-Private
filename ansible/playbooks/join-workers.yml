@@ -1,0 +1,53 @@
+
+---
+# Tham gia các node worker vào control plane hiện có.
+- name: Join worker nodes to Kubernetes cluster
+  hosts: k8s_workers
+  become: true
+  gather_facts: false
+
+  vars:
+    control_plane_ip: "10.20.0.10"
+
+  tasks:
+    - name: Check whether worker has joined
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf
+
+    - name: Verify worker can reach Kubernetes API
+      ansible.builtin.wait_for:
+        host: "{{ control_plane_ip }}"
+        port: 6443
+        timeout: 20
+      when: not worker_kubelet_conf.stat.exists
+
+    - name: Generate temporary join command on control plane
+      ansible.builtin.command:
+        argv:
+          - kubeadm
+          - token
+          - create
+          - --ttl=30m
+          - --print-join-command
+      delegate_to: "{{ groups['k8s_control'][0] }}"
+      register: kubeadm_join
+      no_log: true
+      when: not worker_kubelet_conf.stat.exists
+
+    - name: Join worker to Kubernetes cluster
+      ansible.builtin.command:
+        argv: "{{ kubeadm_join.stdout.split() + ['--cri-socket=unix:///run/containerd/containerd.sock', '--node-name=' ~ inventory_hostname] }}"
+      no_log: true
+      when: not worker_kubelet_conf.stat.exists
+
+    - name: Verify kubelet configuration exists
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: joined_kubelet_conf
+
+    - name: Confirm kubeadm join completed
+      ansible.builtin.assert:
+        that:
+          - joined_kubelet_conf.stat.exists
+        fail_msg: "Worker kubelet configuration was not created"

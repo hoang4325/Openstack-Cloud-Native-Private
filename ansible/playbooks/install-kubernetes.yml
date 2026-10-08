@@ -1,0 +1,152 @@
+
+---
+# Cài đặt containerd và các gói Kubernetes trên toàn bộ node.
+- name: Install containerd and Kubernetes packages
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  vars:
+    kubernetes_minor: "v1.36"
+    crictl_version: "v1.36.0"
+    crictl_sha256: "83855e114566a8a8c44c548d515670f51de3a5e1da8b2effb59870e2f10c25a3"
+
+  tasks:
+    - name: Verify CPU architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: "This crictl archive requires x86_64/amd64"
+
+    - name: Install system prerequisites and containerd
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gpg
+          - containerd
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create containerd configuration directory
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: "0755"
+
+    - name: Generate containerd default configuration
+      ansible.builtin.command:
+        cmd: containerd config default
+      register: containerd_default
+      changed_when: false
+
+    - name: Check containerd cgroup configuration
+      ansible.builtin.assert:
+        that:
+          - "'SystemdCgroup = false' in containerd_default.stdout or 'SystemdCgroup = true' in containerd_default.stdout"
+        fail_msg: "Cannot find SystemdCgroup in containerd configuration"
+
+    - name: Configure containerd with systemd cgroups
+      ansible.builtin.copy:
+        dest: /etc/containerd/config.toml
+        content: "{{ containerd_default.stdout | replace('SystemdCgroup = false', 'SystemdCgroup = true') }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart containerd
+
+    - name: Enable and start containerd
+      ansible.builtin.systemd_service:
+        name: containerd
+        enabled: true
+        state: started
+
+    - name: Apply containerd configuration immediately
+      ansible.builtin.meta: flush_handlers
+
+    - name: Create APT keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Kubernetes repository signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor }}/deb/Release.key"
+        dest: /etc/apt/keyrings/kubernetes.asc
+        mode: "0644"
+
+    - name: Configure Kubernetes APT repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: "deb [signed-by=/etc/apt/keyrings/kubernetes.asc] https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor }}/deb/ /\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Kubernetes packages
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: true
+
+    - name: Hold Kubernetes packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Enable kubelet
+      ansible.builtin.systemd_service:
+        name: kubelet
+        enabled: true
+
+    - name: Download official crictl archive
+      ansible.builtin.get_url:
+        url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        checksum: "sha256:{{ crictl_sha256 }}"
+        mode: "0644"
+
+    - name: Install crictl executable
+      ansible.builtin.unarchive:
+        src: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        creates: /usr/local/bin/crictl
+        mode: "0755"
+
+    - name: Configure crictl to use containerd
+      ansible.builtin.copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+          debug: false
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Verify crictl version
+      ansible.builtin.command:
+        cmd: crictl --version
+      register: crictl_result
+      changed_when: false
+
+    - name: Show crictl version
+      ansible.builtin.debug:
+        var: crictl_result.stdout
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd_service:
+        name: containerd
+        state: restarted

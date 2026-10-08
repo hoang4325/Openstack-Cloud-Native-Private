@@ -1,0 +1,83 @@
+
+---
+# Cài đặt Calico làm CNI VXLAN cho cụm Kubernetes.
+- name: Install Calico VXLAN CNI
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+
+  vars:
+    calico_version: "v3.33.0"
+    calico_base_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests"
+    kubeconfig_path: /home/ubuntu/.kube/config
+
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  tasks:
+    - name: Verify Kubernetes API is accessible
+      ansible.builtin.command:
+        cmd: kubectl cluster-info
+      changed_when: false
+
+    - name: Download Calico v3 CRDs for Kubernetes 1.36
+      ansible.builtin.get_url:
+        url: "{{ calico_base_url }}/v3_projectcalico_org.yaml"
+        dest: /tmp/calico-v3-crds.yaml
+        mode: "0644"
+
+    - name: Install Calico CRDs
+      ansible.builtin.command:
+        cmd: kubectl apply --server-side -f /tmp/calico-v3-crds.yaml
+      register: calico_crds
+      changed_when: "'created' in calico_crds.stdout or 'configured' in calico_crds.stdout"
+
+    - name: Download Tigera Operator manifest
+      ansible.builtin.get_url:
+        url: "{{ calico_base_url }}/tigera-operator.yaml"
+        dest: /tmp/tigera-operator.yaml
+        mode: "0644"
+
+    - name: Install Tigera Operator
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/tigera-operator.yaml
+      register: tigera_result
+      changed_when: "'created' in tigera_result.stdout or 'configured' in tigera_result.stdout"
+
+    - name: Wait for Calico Installation CRD
+      ansible.builtin.command:
+        cmd: kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=180s
+      changed_when: false
+
+    - name: Create Calico VXLAN configuration
+      ansible.builtin.copy:
+        dest: /tmp/calico-installation.yaml
+        mode: "0644"
+        content: |
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              bgp: Disabled
+              nodeAddressAutodetectionV4:
+                cidrs:
+                  - 10.20.0.0/24
+              ipPools:
+                - name: default-ipv4-ippool
+                  blockSize: 26
+                  cidr: 192.168.0.0/16
+                  encapsulation: VXLAN
+                  natOutgoing: Enabled
+                  nodeSelector: all()
+
+    - name: Apply Calico VXLAN configuration
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/calico-installation.yaml
+      register: calico_install
+      changed_when: "'created' in calico_install.stdout or 'configured' in calico_install.stdout"
+
+    - name: Show installation result
+      ansible.builtin.debug:
+        var: calico_install.stdout

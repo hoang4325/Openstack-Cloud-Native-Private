@@ -1,0 +1,38 @@
+
+---
+# Khởi tạo control plane Kubernetes bằng kubeadm.
+- name: Initialize Kubernetes Control Plane
+  hosts: k8s_control
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Initialize Kubernetes with kubeadm
+      ansible.builtin.command:
+        argv:
+          - kubeadm
+          - init
+          - --kubernetes-version=v1.36.5
+          - --apiserver-advertise-address=10.20.0.10
+          - --pod-network-cidr=192.168.0.0/16
+          - --service-cidr=10.96.0.0/12
+          - --cri-socket=unix:///run/containerd/containerd.sock
+          - --node-name=k8s-control-01
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create kubectl configuration directory
+      ansible.builtin.file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+
+    - name: Configure kubectl for ubuntu user
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"

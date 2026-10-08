@@ -1,0 +1,60 @@
+
+---
+# Chuẩn bị các node Ubuntu cho runtime container và Kubernetes.
+- name: Prepare Ubuntu nodes for Kubernetes
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify Ubuntu 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] == '24.04'
+        fail_msg: "This playbook targets Ubuntu 24.04"
+
+    - name: Disable active swap
+      ansible.builtin.command: swapoff -a
+      when: ansible_facts['swaptotal_mb'] | default(0) | int > 0
+
+    - name: Disable swap persistently in fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(?!\s*#)(\s*\S+\s+\S+\s+swap\s+.*)$'
+        replace: '# \1'
+
+    - name: Persist required kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Load required kernel modules
+      ansible.builtin.command:
+        cmd: "modprobe {{ item }}"
+      loop:
+        - overlay
+        - br_netfilter
+      changed_when: false
+
+    - name: Configure Kubernetes networking sysctl
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-kubernetes.conf
+        content: |
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Apply Kubernetes sysctl
+
+  handlers:
+    - name: Apply Kubernetes sysctl
+      ansible.builtin.command:
+        cmd: sysctl --load=/etc/sysctl.d/99-kubernetes.conf
