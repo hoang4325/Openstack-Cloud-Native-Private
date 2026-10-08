@@ -1,0 +1,52 @@
+
+# Run one Traefik replica on the Kubernetes worker.
+deployment:
+  replicas: 1
+
+nodeSelector:
+  kubernetes.io/hostname: k8s-worker-01
+
+# Expose Traefik through a Kubernetes NodePort.
+# OpenStack Octavia is not installed in this lab.
+service:
+  type: NodePort
+
+# Watch Kubernetes Ingress resources.
+providers:
+  kubernetesIngress:
+    enabled: true
+
+  kubernetesGateway:
+    enabled: false
+
+# Create an explicit, non-default IngressClass.
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: traefik
+
+# Traefik HTTP/HTTPS entrypoints.
+ports:
+  web:
+    port: 8000
+    exposedPort: 80
+    nodePort: 30080
+    expose:
+      default: true
+
+  websecure:
+    expose:
+      default: false
+
+# The lab has small VMs, so limit resource consumption.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# Do not publish the dashboard as an HTTP route.
+ingressRoute:
+  dashboard:
+    enabled: false

@@ -39,3 +39,16 @@ resource "openstack_networking_secgroup_rule_v2" "cluster_internal" {
   remote_ip_prefix  = var.tenant_cidr
   security_group_id = openstack_networking_secgroup_v2.k8s_nodes.id
 }
+
+resource "openstack_networking_secgroup_rule_v2" "traefik_http_nodeport" {
+  direction = "ingress"
+  ethertype = "IPv4"
+  protocol  = "tcp"
+
+  port_range_min = 30080
+  port_range_max = 30080
+
+  remote_ip_prefix = "172.30.0.1/32"
+
+  security_group_id = openstack_networking_secgroup_v2.k8s_nodes.id
+}

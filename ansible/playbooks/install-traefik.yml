@@ -1,0 +1,86 @@
+
+---
+- name: Install Traefik Ingress Controller
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+
+  vars:
+    traefik_chart_version: "39.0.7"
+    traefik_values_remote: "/home/ubuntu/helm/traefik/values.yaml"
+
+  environment:
+    KUBECONFIG: /home/ubuntu/.kube/config
+
+  tasks:
+    - name: Create Traefik configuration directory
+      ansible.builtin.file:
+        path: /home/ubuntu/helm/traefik
+        state: directory
+        mode: "0755"
+
+    - name: Upload custom Traefik values
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../helm/traefik/values.yaml"
+        dest: "{{ traefik_values_remote }}"
+        mode: "0644"
+
+    - name: Add official Traefik Helm repository
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - add
+          - traefik
+          - https://traefik.github.io/charts
+          - --force-update
+      changed_when: false
+
+    - name: Update Traefik Helm repository metadata
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - update
+          - traefik
+      changed_when: false
+
+    - name: Validate and render Traefik chart
+      ansible.builtin.command:
+        argv:
+          - helm
+          - template
+          - traefik
+          - traefik/traefik
+          - --version
+          - "{{ traefik_chart_version }}"
+          - --namespace
+          - traefik
+          - -f
+          - "{{ traefik_values_remote }}"
+      changed_when: false
+      register: rendered_chart
+
+    - name: Deploy or upgrade Traefik
+      ansible.builtin.command:
+        argv:
+          - helm
+          - upgrade
+          - --install
+          - traefik
+          - traefik/traefik
+          - --namespace
+          - traefik
+          - --create-namespace
+          - --version
+          - "{{ traefik_chart_version }}"
+          - -f
+          - "{{ traefik_values_remote }}"
+          - --wait
+          - --timeout
+          - 600s
+      register: traefik_result
+
+    - name: Show Helm deployment result
+      ansible.builtin.debug:
+        var: traefik_result.stdout
