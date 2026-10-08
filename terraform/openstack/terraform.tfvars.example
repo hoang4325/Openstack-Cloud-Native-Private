@@ -1,0 +1,13 @@
+cloud_name                = "kolla-admin"
+region                    = "RegionOne"
+ssh_public_key_path       = "~/.ssh/id_ed25519.pub"
+external_network_name     = "public-veth"
+external_physical_network = "physnet1"
+external_cidr             = "172.30.0.0/24"
+external_gateway          = "172.30.0.1"
+floating_ip_start         = "172.30.0.100"
+floating_ip_end           = "172.30.0.200"
+flavor_name               = "k8s-small"
+flavor_ram_mb             = 2048
+flavor_vcpus              = 2
+flavor_disk_gb            = 20
