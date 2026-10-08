@@ -1,0 +1,68 @@
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: network-smoke
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smoke-control
+  namespace: network-smoke
+spec:
+  nodeName: k8s-control-01
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: client
+      image: busybox:1.36
+      command: ["/bin/sh", "-c", "sleep 36000"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smoke-worker
+  namespace: network-smoke
+  labels:
+    app: smoke-web
+spec:
+  nodeName: k8s-worker-01
+  containers:
+    - name: server
+      image: busybox:1.36
+      command:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /www
+          echo "cross-node-service-ok" > /www/index.html
+          exec httpd -f -p 8080 -h /www
+      ports:
+        - containerPort: 8080
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smoke-web
+  namespace: network-smoke
+spec:
+  type: ClusterIP
+  selector:
+    app: smoke-web
+  ports:
+    - port: 80
+      targetPort: 8080
