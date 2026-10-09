@@ -60,7 +60,8 @@ kind: Ingress
 metadata:
   name: demo-web
   namespace: demo
-
+  annotations:
+    argocd.argoproj.io/ignore-healthcheck: "true"
 spec:
   ingressClassName: traefik
 
