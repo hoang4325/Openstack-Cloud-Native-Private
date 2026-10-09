@@ -10,8 +10,8 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/YOUR_USER/YOUR_REPOSITORY.git
-    targetRevision: main
+    repoURL: https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
+    targetRevision: master
     path: kubernetes/apps/demo-web
 
   destination:
