@@ -10,7 +10,7 @@ metadata:
   name: demo-web
   namespace: demo
 spec:
-  replicas: 1
+  replicas: 3
 
   selector:
     matchLabels:
