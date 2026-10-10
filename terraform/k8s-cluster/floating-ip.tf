@@ -19,3 +19,17 @@ resource "openstack_networking_floatingip_v2" "worker" {
     openstack_networking_router_interface_v2.k8s
   ]
 }
+
+resource "openstack_networking_floatingip_v2" "monitoring" {
+  pool = data.terraform_remote_state.foundation.outputs.external_network_name
+
+  subnet_id = data.terraform_remote_state.foundation.outputs.external_subnet_id
+
+  port_id = openstack_networking_port_v2.monitoring.id
+
+  description = "Floating IP for Kubernetes monitoring worker"
+
+  depends_on = [
+    openstack_networking_router_interface_v2.k8s
+  ]
+}

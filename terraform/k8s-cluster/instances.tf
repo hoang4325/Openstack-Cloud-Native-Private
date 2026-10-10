@@ -21,3 +21,21 @@ resource "openstack_compute_instance_v2" "worker" {
   }
   depends_on = [openstack_networking_router_interface_v2.k8s]
 }
+
+resource "openstack_compute_instance_v2" "monitoring" {
+  name = var.monitoring_name
+
+  image_id = data.terraform_remote_state.foundation.outputs.image_id
+
+  flavor_id = data.terraform_remote_state.foundation.outputs.monitoring_flavor_id
+
+  key_pair = data.terraform_remote_state.foundation.outputs.keypair_name
+
+  network {
+    port = openstack_networking_port_v2.monitoring.id
+  }
+
+  depends_on = [
+    openstack_networking_router_interface_v2.k8s
+  ]
+}

@@ -21,3 +21,18 @@ resource "openstack_networking_port_v2" "worker" {
     ip_address = var.worker_fixed_ip
   }
 }
+
+resource "openstack_networking_port_v2" "monitoring" {
+  name           = "${var.monitoring_name}-port"
+  network_id     = openstack_networking_network_v2.k8s.id
+  admin_state_up = true
+
+  security_group_ids = [
+    openstack_networking_secgroup_v2.k8s_nodes.id
+  ]
+
+  fixed_ip {
+    subnet_id  = openstack_networking_subnet_v2.k8s.id
+    ip_address = var.monitoring_fixed_ip
+  }
+}

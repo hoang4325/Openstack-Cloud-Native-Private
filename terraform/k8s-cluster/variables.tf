@@ -81,3 +81,13 @@ variable "worker_fixed_ip" {
   type    = string
   default = "10.20.0.11"
 }
+
+variable "monitoring_name" {
+  type    = string
+  default = "k8s-monitoring-01"
+}
+
+variable "monitoring_fixed_ip" {
+  type    = string
+  default = "10.20.0.12"
+}

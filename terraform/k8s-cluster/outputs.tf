@@ -13,3 +13,11 @@ output "ssh_commands" {
     worker  = "ssh ubuntu@${openstack_networking_floatingip_v2.worker.address}"
   }
 }
+
+output "monitoring_fixed_ip" {
+  value = var.monitoring_fixed_ip
+}
+
+output "monitoring_floating_ip" {
+  value = openstack_networking_floatingip_v2.monitoring.address
+}
