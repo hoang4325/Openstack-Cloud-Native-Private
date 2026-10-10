@@ -2,7 +2,7 @@
 resource "openstack_compute_instance_v2" "control" {
   name      = var.control_name
   image_id  = data.terraform_remote_state.foundation.outputs.image_id
-  flavor_id = data.terraform_remote_state.foundation.outputs.flavor_id
+  flavor_id = data.terraform_remote_state.foundation.outputs.control_flavor_id
   key_pair  = data.terraform_remote_state.foundation.outputs.keypair_name
   network {
     port = openstack_networking_port_v2.control.id

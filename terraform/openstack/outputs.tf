@@ -6,6 +6,9 @@ output "image_name" { value = openstack_images_image_v2.ubuntu_noble.name }
 output "flavor_id" { value = openstack_compute_flavor_v2.k8s_small.id }
 # Xuất tên của flavor dành cho Kubernetes.
 output "flavor_name" { value = openstack_compute_flavor_v2.k8s_small.name }
+output "control_flavor_id" {
+  value = openstack_compute_flavor_v2.k8s_control.id
+}
 # Xuất tên keypair SSH đã đăng ký.
 output "keypair_name" { value = openstack_compute_keypair_v2.lab.name }
 # Xuất ID của mạng bên ngoài.

@@ -10,12 +10,13 @@ global:
 controller:
   replicas: 1
 
+  # kube-prometheus-stack reconciliation exceeds the former 384Mi limit.
   resources:
     requests:
       cpu: 100m
-      memory: 192Mi
+      memory: 512Mi
     limits:
-      memory: 384Mi
+      memory: 1Gi
 
 server:
   replicas: 1
