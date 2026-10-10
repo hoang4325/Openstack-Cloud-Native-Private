@@ -23,3 +23,12 @@ resource "openstack_compute_flavor_v2" "k8s_monitoring" {
   disk      = 40
   is_public = true
 }
+
+# Smaller monitoring flavor; keep the previous flavor available for rollback.
+resource "openstack_compute_flavor_v2" "k8s_monitoring_4gb" {
+  name      = "k8s-monitoring-4gb"
+  ram       = 4096
+  vcpus     = 4
+  disk      = 40
+  is_public = true
+}
