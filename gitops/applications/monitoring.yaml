@@ -17,6 +17,8 @@ spec:
 
       helm:
         releaseName: monitoring
+        # CRDs already exist in-cluster; avoid client-side annotation limits.
+        skipCrds: true
         valueFiles:
           - $values/helm/monitoring/values.yaml
 
