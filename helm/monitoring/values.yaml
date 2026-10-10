@@ -1,0 +1,132 @@
+
+# Monitoring stack - Phase 8A
+# Chart version: kube-prometheus-stack 91.8.1
+
+# Default alert and recording rules.
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+
+# Disable targets that need extra control-plane
+# endpoint configuration in this lab.
+kubeEtcd:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+# Monitor Kubernetes object state.
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  nodeSelector:
+    workload: monitoring
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+# Monitor operating system metrics on nodes.
+nodeExporter:
+  enabled: true
+
+# Manage Prometheus resources with Operator.
+prometheusOperator:
+  enabled: true
+
+  nodeSelector:
+    workload: monitoring
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+# Collect and store time-series metrics.
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    replicas: 1
+
+    nodeSelector:
+      workload: monitoring
+
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    retention: 3d
+    retentionSize: 3GiB
+
+    resources:
+      requests:
+        cpu: 300m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+    # Ephemeral storage: no PVC required.
+    storageSpec: {}
+
+# Dashboards.
+grafana:
+  enabled: true
+
+  nodeSelector:
+    workload: monitoring
+
+  defaultDashboardsEnabled: true
+
+  admin:
+    existingSecret: monitoring-grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  service:
+    type: ClusterIP
+
+  persistence:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+# Alert processing.
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    replicas: 1
+
+    nodeSelector:
+      workload: monitoring
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        memory: 256Mi
+
+    storage: {}
