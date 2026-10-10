@@ -6,3 +6,11 @@ resource "openstack_compute_flavor_v2" "k8s_small" {
   disk      = var.flavor_disk_gb
   is_public = true
 }
+#Tạo flavor Openstack cho máy ảo Kubernetes Monitoring.
+resource "openstack_compute_flavor_v2" "k8s_monitoring" {
+  name      = "k8s-monitoring"
+  ram       = 6144
+  vcpus     = 4
+  disk      = 40
+  is_public = true
+}

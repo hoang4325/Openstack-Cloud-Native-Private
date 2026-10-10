@@ -14,3 +14,6 @@ output "external_network_id" { value = openstack_networking_network_v2.external.
 output "external_network_name" { value = openstack_networking_network_v2.external.name }
 # Xuất ID của subnet bên ngoài.
 output "external_subnet_id" { value = openstack_networking_subnet_v2.external.id }
+output "monitoring_flavor_id" {
+  value = openstack_compute_flavor_v2.k8s_monitoring.id
+}
