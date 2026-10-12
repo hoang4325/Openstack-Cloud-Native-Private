@@ -5,8 +5,8 @@
 > Dự án thực hành xây dựng và vận hành một nền tảng Kubernetes trên **OpenStack Private Cloud**, từ cấp phát tài nguyên đến triển khai ứng dụng, giám sát và xử lý sự cố.
 
 **Repository:** [hoang4325/Openstack-Cloud-Native-Private](https://github.com/hoang4325/Openstack-Cloud-Native-Private)  
-**Environment:** Lab / Non-production  
-**Default branch:** `master`
+**Environment:** Lab
+
 
 ## Mục lục
 
