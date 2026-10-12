@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inc11-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l11
+spec:
+  selector:
+    app: nonexistent-l11
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80

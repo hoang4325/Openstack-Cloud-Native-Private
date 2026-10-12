@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: inc33-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l33
+    release: wrong-release
+spec:
+  selector:
+    matchLabels:
+      app: nonexistent
+  namespaceSelector:
+    matchNames:
+    - troubleshooting-lab
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s

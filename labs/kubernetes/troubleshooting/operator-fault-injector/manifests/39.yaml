@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: inc39-obj02
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l39
+    release: monitoring
+spec:
+  groups:
+  - name: inc39-obj01
+    rules:
+    - alert: Lab39AlwaysPending
+      expr: vector(1) == 1
+      for: 1000h
+      labels:
+        severity: info
+        environment: troubleshooting-lab
+      annotations:
+        summary: 'Lab practice: intentional long Pending'

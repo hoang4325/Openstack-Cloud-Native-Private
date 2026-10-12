@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inc57-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l57
+spec:
+  containers:
+  - name: main
+    image: nginx:1.27-alpine
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 6553
+      periodSeconds: 5

@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inc60-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l60
+    app: inc60-obj01
+spec:
+  containers:
+  - name: web
+    image: python:3.12-alpine
+    command:
+    - python
+    - -u
+    - -c
+    - "from http.server import HTTPServer,BaseHTTPRequestHandler\nimport time\nclass\
+      \ H(BaseHTTPRequestHandler):\n def do_GET(self):\n  time.sleep(2)\n  self.send_response(200);self.end_headers();self.wfile.write(b'OK')\n\
+      HTTPServer(('0.0.0.0',8080),H).serve_forever()"
+    ports:
+    - name: http
+      containerPort: 8080
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inc60-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l60
+spec:
+  selector:
+    app: inc60-obj01
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inc04-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l04
+spec:
+  containers:
+  - name: memory
+    image: python:3.12-alpine
+    command:
+    - python
+    - -c
+    - x=bytearray(110*1024*1024);print(len(x));import time;time.sleep(60)
+    resources:
+      requests:
+        memory: 16Mi
+        cpu: 10m
+      limits:
+        memory: 40Mi
+        cpu: 100m

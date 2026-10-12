@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inc07-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l07
+spec:
+  containers:
+  - name: main
+    image: nginx:1.27-alpine
+  initContainers:
+  - name: precheck
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - echo init_failed;exit 3
