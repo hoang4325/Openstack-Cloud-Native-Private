@@ -49,6 +49,7 @@
       loop:
         - values.yaml
         - persistence-grafana.values.yaml
+        - persistence-alertmanager.values.yaml
 
     - name: Render Monitoring manifests with Grafana PVC
       ansible.builtin.shell: |
@@ -60,6 +61,7 @@
           --skip-crds \
           -f {{ validation_dir }}/values.yaml \
           -f {{ validation_dir }}/persistence-grafana.values.yaml \
+          -f {{ validation_dir }}/persistence-alertmanager.values.yaml \
           > {{ validation_dir }}/rendered.yaml
       args:
         executable: /bin/bash
