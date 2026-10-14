@@ -21,6 +21,7 @@ spec:
         valueFiles:
           - $values/helm/monitoring/values.yaml
           - $values/helm/monitoring/persistence-grafana.values.yaml
+          - $values/helm/monitoring/persistence-alertmanager.values.yaml
 
     # Custom configuration stored in GitHub.
     - repoURL: https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
