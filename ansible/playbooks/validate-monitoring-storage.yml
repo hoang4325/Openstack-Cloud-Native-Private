@@ -50,6 +50,7 @@
         - values.yaml
         - persistence-grafana.values.yaml
         - persistence-alertmanager.values.yaml
+        - persistence-prometheus.values.yaml
 
     - name: Render Monitoring manifests with Grafana PVC
       ansible.builtin.shell: |
@@ -62,6 +63,7 @@
           -f {{ validation_dir }}/values.yaml \
           -f {{ validation_dir }}/persistence-grafana.values.yaml \
           -f {{ validation_dir }}/persistence-alertmanager.values.yaml \
+          -f {{ validation_dir }}/persistence-prometheus.values.yaml \
           > {{ validation_dir }}/rendered.yaml
       args:
         executable: /bin/bash
