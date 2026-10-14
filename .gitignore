@@ -1,0 +1,25 @@
+# OpenStack credentials
+**/cloud.conf
+**/clouds.yaml
+**/admin-openrc
+**/passwords.yml
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+*.secret.yaml
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python and temporary files
+__pycache__/
+*.pyc
+*.log
+*.bak
