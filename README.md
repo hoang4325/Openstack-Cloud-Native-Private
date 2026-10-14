@@ -363,7 +363,7 @@ Mở [http://localhost:9090/targets](http://localhost:9090/targets) để kiểm
 ### Giới hạn hiện tại
 
 - Prometheus được cấu hình retention **3 ngày** và `retentionSize: 3GiB`.
-- `storageSpec: {}` chưa cung cấp PVC cho Prometheus; `grafana.persistence.enabled: false`. Không xem đây là nơi lưu metrics/dashboard bền vững.
+- Prometheus, Grafana và Alertmanager hiện đã có PVC qua Cinder CSI (10Gi, 3Gi và 2Gi). Pod restart không thay thế backup định kỳ hoặc disaster recovery.
 - Alertmanager và default rules đã bật nhưng **chưa có receiver thông báo tùy chỉnh** được khai báo trong repo.
 - Các endpoint etcd, kube-controller-manager, kube-scheduler, kube-proxy hiện được tắt giám sát trong cấu hình chart. Cần cấu hình endpoint và quyền truy cập trước khi mở lại.
 - Các thành phần chủ yếu chạy single-replica, không phải high availability.
@@ -396,7 +396,7 @@ Nếu cần ép một lần đồng bộ thủ công, thực hiện trên Argo C
 
 ## 8. Kubernetes Troubleshooting và SRE (dự kiến tích hợp)
 
-Hai bộ lab đang được thực hành độc lập sẽ được đưa vào `labs/kubernetes/troubleshooting/` sau khi rà soát nội dung và quyền thực thi:
+Hai bộ troubleshooting lab đã có trong `labs/kubernetes/troubleshooting/`; cần tiếp tục rà soát an toàn trước khi sử dụng trên cluster:
 
 | Thành phần | Mục đích |
 | --- | --- |
@@ -468,3 +468,15 @@ RCA cần có **Incident Summary, Impact, Detection, Timeline, Evidence, Root Ca
 ---
 
 > **Ghi chú về tài liệu:** README này mô tả cấu hình từ mã nguồn và quy trình triển khai dự kiến. Để xác nhận trạng thái hệ thống đang chạy, luôn đối chiếu với Terraform outputs, Ansible execution logs, Argo CD Application status và kết quả `kubectl` thực tế.
+
+---
+## Hiện trạng triển khai và CI — 2026-10-14
+
+- **Cinder CSI:** Helm release `cinder-csi` (chart `openstack-cinder-csi` 2.36.2) trong namespace `kube-system`; StorageClass `cinder-lvm` do Argo CD quản lý.
+- **Monitoring persistence:** Grafana 3GiB, Alertmanager 2GiB, Prometheus 10GiB đều sử dụng PVC `cinder-lvm` và đã vượt qua kiểm thử giữ dữ liệu qua Pod restart.
+- **GitOps:** `monitoring` đồng bộ thủ công (`automated.enabled=false`); `demo-web` tự đồng bộ.
+- **Ansible CSI:** [`manage-cinder-csi.yml`](ansible/playbooks/manage-cinder-csi.yml) kiểm tra và tái chạy mà không nâng cấp Helm release hiện hữu nếu chưa cho phép rõ ràng. Xem [Cinder CSI automation](docs/storage/AUTOMATION.md).
+- **CI:** [Infrastructure Validation](.github/workflows/infrastructure-validation.yml) kiểm tra Terraform, Ansible và Helm trên PR. Không cấp thông tin OpenStack/cluster thật cho CI.
+- **SRE:** [`labs/kubernetes/troubleshooting`](labs/kubernetes/troubleshooting) và [`sre/`](sre/) đã tồn tại trong repository.
+- **Còn thiếu:** Kolla-Ansible bootstrap end-to-end, backup/restore ngoài host, HA, OpenStack/Cinder metrics và vận hành production. Thin pool LVM file-backed trên host AIO là môi trường lab.
+
