@@ -214,7 +214,7 @@ Trích `kubectl logs inc01-obj01 -n troubleshooting-lab -c web --tail=30`:
 /docker-entrypoint.sh: Configuration complete; ready for start up
 2026/10/12 16:02:19 [notice] 1#1: nginx/1.30.5
 2026/10/12 16:02:19 [notice] 1#1: start worker processes
-```
+```  
 
 ### 8.4. HTTP functional test
 

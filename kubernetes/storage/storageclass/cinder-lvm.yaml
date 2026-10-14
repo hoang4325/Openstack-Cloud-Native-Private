@@ -1,0 +1,12 @@
+# Matches the existing cluster StorageClass cinder-lvm.
+# Retain means deleting the PVC will NOT delete its OpenStack volume.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cinder-lvm
+provisioner: cinder.csi.openstack.org
+parameters:
+  type: "__DEFAULT__"
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
