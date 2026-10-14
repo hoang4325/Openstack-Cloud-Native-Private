@@ -1,0 +1,11 @@
+grafana:
+  deploymentStrategy:
+    type: Recreate
+
+  persistence:
+    type: pvc
+    enabled: true
+    storageClassName: cinder-lvm
+    accessModes:
+      - ReadWriteOnce
+    size: 3Gi

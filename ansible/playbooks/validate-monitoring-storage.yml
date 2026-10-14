@@ -1,0 +1,80 @@
+
+---
+- name: Validate Monitoring Persistent Storage
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+
+  vars:
+    helm_chart_version: "91.8.1"
+    validation_dir: /tmp/monitoring-storage-validation
+
+  tasks:
+    - name: Verify Helm is installed
+      ansible.builtin.command:
+        cmd: helm version --short
+      changed_when: false
+
+    - name: Add Prometheus Community Helm repository
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - add
+          - prometheus-community
+          - https://prometheus-community.github.io/helm-charts
+          - --force-update
+      changed_when: false
+
+    - name: Update Helm repository
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - update
+          - prometheus-community
+      changed_when: false
+
+    - name: Create validation directory
+      ansible.builtin.file:
+        path: "{{ validation_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Monitoring Helm values from devops
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../helm/monitoring/{{ item }}"
+        dest: "{{ validation_dir }}/{{ item }}"
+        mode: "0644"
+      loop:
+        - values.yaml
+        - persistence-grafana.values.yaml
+
+    - name: Render Monitoring manifests with Grafana PVC
+      ansible.builtin.shell: |
+        set -e
+        helm template monitoring \
+          prometheus-community/kube-prometheus-stack \
+          --version {{ helm_chart_version }} \
+          --namespace monitoring \
+          --skip-crds \
+          -f {{ validation_dir }}/values.yaml \
+          -f {{ validation_dir }}/persistence-grafana.values.yaml \
+          > {{ validation_dir }}/rendered.yaml
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify Cinder StorageClass is referenced
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -n
+          - "cinder-lvm"
+          - "{{ validation_dir }}/rendered.yaml"
+      register: storage_check
+      changed_when: false
+
+    - name: Show validation result
+      ansible.builtin.debug:
+        var: storage_check.stdout_lines
