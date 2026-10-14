@@ -1,0 +1,150 @@
+
+name: OpenStack Cloud-Native CI
+
+on:
+  pull_request:
+    branches:
+      - master
+
+  push:
+    branches:
+      - master
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ==========================================
+  # JOB 1: TERRAFORM VALIDATION
+  # ==========================================
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive terraform
+
+      - name: Validate OpenStack Foundation
+        working-directory: terraform/openstack
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Validate Kubernetes Infrastructure
+        working-directory: terraform/k8s-cluster
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  # ==========================================
+  # JOB 2: ANSIBLE VALIDATION
+  # ==========================================
+  ansible:
+    name: Ansible Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible and Ansible Lint
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            ansible-core==2.17.13 \
+            ansible-lint==25.2.0
+
+      - name: Ansible Playbook Syntax Check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for playbook in ansible/playbooks/*.yml; do
+            echo "Checking: $playbook"
+
+            ansible-playbook \
+              -i 'localhost,' \
+              --syntax-check "$playbook"
+          done
+
+      - name: Lint Cinder CSI Playbook
+        run: |
+          ansible-lint \
+            ansible/playbooks/manage-cinder-csi.yml
+
+  # ==========================================
+  # JOB 3: HELM VALIDATION
+  # ==========================================
+  helm:
+    name: Helm Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4.3.0
+        with:
+          version: "v3.17.3"
+
+      - name: Add Helm Repositories
+        run: |
+          helm repo add cpo \
+            https://kubernetes.github.io/cloud-provider-openstack
+
+          helm repo add prometheus-community \
+            https://prometheus-community.github.io/helm-charts
+
+          helm repo update
+
+      - name: Validate Cinder CSI Helm Chart
+        run: |
+          helm template cinder-csi \
+            cpo/openstack-cinder-csi \
+            --version 2.36.2 \
+            --namespace kube-system \
+            -f helm/storage/cinder-csi-values.yaml \
+            > /tmp/cinder-csi-rendered.yaml
+
+          test -s /tmp/cinder-csi-rendered.yaml
+
+      - name: Validate Monitoring Helm Chart
+        run: |
+          helm template monitoring \
+            prometheus-community/kube-prometheus-stack \
+            --version 91.8.1 \
+            --namespace monitoring \
+            --skip-crds \
+            -f helm/monitoring/values.yaml \
+            -f helm/monitoring/persistence-grafana.values.yaml \
+            -f helm/monitoring/persistence-alertmanager.values.yaml \
+            -f helm/monitoring/persistence-prometheus.values.yaml \
+            > /tmp/monitoring-rendered.yaml
+
+          test -s /tmp/monitoring-rendered.yaml
+
+      - name: Verify Cinder StorageClass in Monitoring
+        run: |
+          grep -q \
+            'storageClassName: cinder-lvm' \
+            /tmp/monitoring-rendered.yaml
+
+          echo "Monitoring Cinder PVC configuration found."
