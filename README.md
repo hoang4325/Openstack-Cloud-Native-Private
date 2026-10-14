@@ -1,243 +1,246 @@
 # OpenStack Cloud-Native Private Infrastructure Lab
 
-> **Infrastructure as Code · Kubernetes · GitOps · Observability · SRE**
->
-> Dự án thực hành xây dựng và vận hành một nền tảng Kubernetes trên **OpenStack Private Cloud**, từ cấp phát tài nguyên đến triển khai ứng dụng, giám sát và xử lý sự cố.
+> **OpenStack · Terraform · Ansible · Kubernetes · Cinder CSI · Argo CD · Prometheus / Grafana / Alertmanager**
 
-**Repository:** [hoang4325/Openstack-Cloud-Native-Private](https://github.com/hoang4325/Openstack-Cloud-Native-Private)  
-**Environment:** Lab
+Repository: [hoang4325/Openstack-Cloud-Native-Private](https://github.com/hoang4325/Openstack-Cloud-Native-Private)
+Môi trường: **Private Cloud Lab** — một host OpenStack All-in-One và cụm Kubernetes 3 node chạy trên các máy ảo OpenStack.
 
+Tài liệu này tập trung vào **kiến trúc hệ thống hiện tại** và **trình tự dựng lại hạ tầng trên một môi trường mới** theo đúng cấu hình được quản lý trong repository. Đây không phải hướng dẫn nâng cấp hay reset hệ thống đang hoạt động.
 
-## Mục lục
-
-- [1. Tổng quan](#1-tổng-quan)
-- [2. Kiến trúc](#2-kiến-trúc)
-- [3. Cấu trúc repository](#3-cấu-trúc-repository)
-- [4. Yêu cầu chuẩn bị](#4-yêu-cầu-chuẩn-bị)
-- [5. Hướng dẫn triển khai](#5-hướng-dẫn-triển-khai)
-- [6. Giám sát và truy cập](#6-giám-sát-và-truy-cập)
-- [7. Kiểm tra và vận hành](#7-kiểm-tra-và-vận-hành)
-- [8. Troubleshooting và SRE](#8-kubernetes-troubleshooting-và-sre-dự-kiến-tích-hợp)
-- [9. Bảo mật](#9-bảo-mật-và-an-toàn-cấu-hình)
-- [10. Lộ trình phát triển](#10-lộ-trình-phát-triển)
-
-## 1. Tổng quan
-
-Dự án áp dụng quy trình triển khai nhiều lớp:
-
-1. **Terraform** cấp phát tài nguyên OpenStack: network, subnet, router, security group, floating IP và máy ảo.
-2. **Ansible** chuẩn bị Ubuntu VM, cài containerd, Kubernetes bằng kubeadm, Calico, Helm, Argo CD và Traefik.
-3. **Helm + Argo CD** quản lý triển khai ứng dụng mẫu và hệ thống monitoring theo mô hình GitOps.
-4. **Prometheus, Grafana và Alertmanager** cung cấp metrics, dashboard và nền tảng cảnh báo.
-5. **Troubleshooting / SRE** là hướng mở rộng tiếp theo: fault injection có kiểm soát, điều tra sự cố, runbook và RCA.
-
-**Phạm vi:** Repository hiện quản lý tài nguyên **bên trong một OpenStack cloud đã hoạt động**. Mã cài đặt OpenStack bằng Kolla-Ansible **chưa nằm trong repo này**; bước chuẩn bị nền tảng OpenStack là điều kiện đầu vào.
-
-### Công nghệ sử dụng
-
-| Layer | Công nghệ / phiên bản thể hiện trong source |
-| --- | --- |
-| Private cloud | OpenStack (cloud profile mặc định: `kolla-admin`) |
-| Infrastructure as Code | Terraform `>= 1.5.0`, OpenStack provider `3.4.0` |
-| OS / VM | Ubuntu Server 24.04 |
-| Configuration management | Ansible |
-| Container runtime | containerd |
-| Container orchestration | Kubernetes qua kubeadm; control plane khởi tạo `v1.36.5` |
-| Networking / CNI | Calico `v3.33.0`, VXLAN |
-| Package management | Helm (`v4.3.0` theo playbook) |
-| Ingress | Traefik Helm chart `39.0.7` |
-| GitOps | Argo CD Helm chart `10.9.6` |
-| Observability | kube-prometheus-stack chart `91.8.1` |
-
-> Các phiên bản ở trên là cấu hình **được khai báo trong repository**, không phải kết quả kiểm tra trạng thái runtime tại thời điểm đọc README. Khi nâng cấp, cần kiểm tra tính tương thích giữa các thành phần.
-
-## 2. Kiến trúc
+## 1. Kiến trúc tổng thể
 
 ```mermaid
 flowchart TB
-    Operator["Ubuntu Host / Operator"]
-    GitHub["GitHub Repository"]
-    Terraform["Terraform"]
-    Ansible["Ansible"]
+    GitHub["GitHub Repository"] --> CI["GitHub Actions: validate Terraform / Ansible / Helm"]
+    GitHub --> Argo["Argo CD: GitOps Applications"]
 
-    subgraph Cloud["OpenStack Private Cloud"]
-        External["External network / Floating IP"]
-        Router["Neutron Router + SNAT"]
-        Tenant["Tenant network: 10.20.0.0/24"]
-
-        subgraph Cluster["Kubernetes Cluster"]
-            Control["k8s-control-01<br/>Control Plane"]
-            Worker["k8s-worker-01<br/>Application Worker"]
-            Monitor["k8s-monitoring-01<br/>Monitoring Worker"]
+    subgraph Host["Ubuntu host: devops"]
+        TF["Terraform: provision resources"]
+        AN["Ansible: bootstrap Kubernetes & CSI"]
+        subgraph OS["OpenStack Kolla-Ansible AIO"]
+            API["Keystone · Nova · Neutron · Glance · Cinder"]
+            Cinder["Cinder LVM thin pool / loopback (lab)"]
         end
-
-        External --> Router --> Tenant
-        Tenant --> Control
-        Tenant --> Worker
-        Tenant --> Monitor
     end
 
-    Operator --> Terraform
-    Operator --> Ansible
-    Terraform -->|Provision| Cloud
-    Ansible -->|Configure via SSH| Cluster
-    Operator -->|kubectl via SSH| Control
-    Control -->|Kubernetes API| Worker
-    Control -->|Kubernetes API| Monitor
+    TF --> API
+    AN --> CP
 
-    GitHub -->|Desired state| Argo["Argo CD"]
-    Argo -->|Reconcile| App["demo-web / Traefik"]
-    Argo -->|Reconcile| Observability["Prometheus / Grafana / Alertmanager"]
-    Worker --- Argo
-    Worker --- App
-    Monitor --- Observability
+    subgraph Tenant["OpenStack tenant network: 10.20.0.0/24"]
+        CP["k8s-control-01\n10.20.0.10"]
+        WK["k8s-worker-01\n10.20.0.11"]
+        MON["k8s-monitoring-01\n10.20.0.12"]
+        CP --- WK
+        CP --- MON
+    end
+
+    API --> Tenant
+    Argo --> CP
+    CP --> Apps["demo-web · Traefik"]
+    CP --> Obs["Prometheus · Grafana · Alertmanager"]
+    Obs --> CSI["Cinder CSI: cinder.csi.openstack.org"]
+    CSI --> Cinder
 ```
 
-### Cấu hình các node
+### Các lớp hạ tầng
 
-| Node | Vai trò | Cấu hình khai báo | IP cố định mặc định |
-| --- | --- | --- | --- |
-| `k8s-control-01` | Control plane | 2 vCPU / 4 GiB RAM | `10.20.0.10` |
-| `k8s-worker-01` | Worker ứng dụng; Argo CD; Traefik; demo-web | 2 vCPU / 2 GiB RAM | `10.20.0.11` |
-| `k8s-monitoring-01` | Worker dành cho monitoring | 4 vCPU / 4 GiB RAM | `10.20.0.12` |
+| Lớp | Công nghệ | Vai trò |
+|---|---|---|
+| Private cloud | OpenStack Kolla-Ansible AIO | Cung cấp API, compute, network, image và block storage |
+| Provisioning | Terraform / OpenStack provider | Tạo image, flavor, keypair, networks, router, security groups, ports, floating IP và 3 VM |
+| OS & Kubernetes | Ansible, Ubuntu 24.04, containerd, kubeadm | Chuẩn bị node, cài Kubernetes và gia nhập worker |
+| Container networking | Calico VXLAN | Kết nối các Pod trên các node |
+| Ingress | Traefik | Nhận HTTP qua NodePort `30080` và định tuyến đến ứng dụng demo |
+| GitOps | Helm, Argo CD | Quản lý desired state của demo-web, Monitoring và StorageClass |
+| Persistent storage | OpenStack Cinder CSI, `cinder-lvm` | Dynamic provisioning, attach và mount volume cho Kubernetes PVC |
+| Observability | kube-prometheus-stack | Metrics, dashboard và alert management |
+| CI | GitHub Actions | Validate Terraform, Ansible và Helm, không tự triển khai vào cluster |
 
-### Thiết kế mạng
+### Node và network
 
-| Network | Giá trị ví dụ / mặc định | Ghi chú |
-| --- | --- | --- |
-| External network | `172.30.0.0/24` | Thay theo môi trường OpenStack thực tế |
-| Tenant network | `10.20.0.0/24` | Kết nối các Kubernetes nodes |
-| Pod CIDR | `192.168.0.0/16` | Calico VXLAN |
-| Service CIDR | `10.96.0.0/12` | Cấu hình kubeadm |
-| Traefik HTTP | NodePort `30080` | Security group hiện giới hạn nguồn tới `172.30.0.1/32`; cần kiểm tra tuyến truy cập thực tế |
-| SSH | TCP `22` | Giới hạn bằng `ssh_allowed_cidr` |
+| VM | Vai trò | Fixed IP | Floating IP trong lab hiện tại |
+|---|---|---|---|
+| `k8s-control-01` | Kubernetes control plane | `10.20.0.10` | `172.30.0.114` |
+| `k8s-worker-01` | Application worker, Argo CD, Traefik | `10.20.0.11` | `172.30.0.112` |
+| `k8s-monitoring-01` | Monitoring worker | `10.20.0.12` | `172.30.0.105` |
 
-Cụm này được thiết kế cho **lab, không phải kiến trúc HA production**: một control plane, một bản sao nhiều thành phần và giới hạn về tài nguyên/lưu trữ.
+- Provider/external network mẫu: `172.30.0.0/24`; tenant network: `10.20.0.0/24`.
+- Pod CIDR: `192.168.0.0/16`; Service CIDR: `10.96.0.0/12`.
+- SSH dùng floating IP, được giới hạn theo `ssh_allowed_cidr` và các rule Neutron.
+- Floating IP có thể **khác** khi triển khai lại; luôn lấy giá trị từ Terraform output thay vì sao chép IP của lab hiện tại.
+- Một control plane, một replica cho nhiều dịch vụ và một OpenStack AIO: **đây không phải kiến trúc HA / production**.
 
-## 3. Cấu trúc repository
+### Persistent storage hiện tại
 
-Cấu trúc **đã có trên nhánh `master`** khi README được cập nhật:
+| Workload | StorageClass | PVC | Kiểm chứng trong lab |
+|---|---|---|---|
+| Grafana | `cinder-lvm` | `3Gi` | Dashboard còn sau khi tạo lại Pod |
+| Alertmanager | `cinder-lvm` | `2Gi` | Silence thử nghiệm còn sau khi tạo lại Pod |
+| Prometheus | `cinder-lvm` | `10Gi` | 11 samples lịch sử khớp trước/sau restart |
+
+Các volume được cấp phát bằng CSI từ Cinder backend trên OpenStack host. LVM thin pool file-backed của lab sử dụng một file loopback khoảng `30GiB`; **dữ liệu vẫn phụ thuộc host OpenStack**. PVC persistence không thay thế backup ngoài host.
+
+## 2. Source code được chia như thế nào?
 
 ```text
 Openstack-Cloud-Native-Private/
-├── ansible/
-│   ├── inventory/hosts.ini           # Ansible inventory
-│   ├── manifests/                     # Kiểm tra kết nối mạng
-│   └── playbooks/                     # Kubernetes, Calico, Helm, Argo CD, Traefik
 ├── terraform/
-│   ├── openstack/                     # Foundation: image, external network, keypair, flavors
-│   └── k8s-cluster/                   # Tenant network, security groups, 3 VM, floating IP
-├── kubernetes/
-│   └── apps/demo-web/                 # Demo application manifests
+│   ├── openstack/                    # Image, flavors, external network, SSH keypair
+│   └── k8s-cluster/                  # Tenant network, security group, VM, floating IP
+├── ansible/
+│   ├── inventory/hosts.ini
+│   └── playbooks/                    # Kubernetes, Calico, Helm, Argo CD, Traefik, CSI
 ├── helm/
-│   ├── argocd/                        # Argo CD values
-│   ├── traefik/                       # Traefik values
-│   └── monitoring/                    # kube-prometheus-stack values
-└── gitops/
-    └── applications/
-        ├── demo-web.yaml
-        └── monitoring.yaml
+│   ├── argocd/values.yaml
+│   ├── traefik/values.yaml
+│   ├── storage/                       # Cinder CSI values + cloud.conf.example
+│   └── monitoring/                    # kube-prometheus-stack + 3 PVC overlays
+├── kubernetes/
+│   ├── apps/demo-web/
+│   └── storage/                       # StorageClass + opt-in smoke test
+├── gitops/
+│   ├── applications/                  # demo-web, monitoring, storageclass-cinder
+│   └── examples/                      # CSI Application tham khảo, chưa kích hoạt
+├── docs/storage/                      # Hướng dẫn vận hành Cinder CSI
+├── labs/kubernetes/troubleshooting/   # Lab sự cố, không deploy tự động
+├── sre/                                # Runbooks / RCA
+├── .github/workflows/ci.yml           # Terraform / Ansible / Helm validation
+└── README.md
 ```
 
-**Cấu trúc dự kiến bổ sung (chưa có trên `master`):**
+## 3. Điều kiện để dựng lại từ đầu
 
-```text
-labs/kubernetes/troubleshooting/
-├── student-blind-labs/              # Lab điều tra, không cung cấp lời giải sẵn
-└── operator-fault-injector/         # Tạo/reset sự cố có kiểm soát
-sre/
-├── incidents/                       # RCA theo từng incident
-├── runbooks/                        # Hướng dẫn xử lý lỗi tái sử dụng
-├── alert-rules/                     # Custom PrometheusRule
-└── slo/                             # SLI/SLO definitions
-docs/
-├── architecture/
-├── deployment/
-├── operations/
-└── adr/                              # Architecture Decision Records
-tests/                                # Validation / smoke / recovery tests
-.github/workflows/                    # CI quality gates
-README.md                             # Tài liệu tổng quan này
-```
+### Phạm vi tự động hóa
 
-> Chỉ bổ sung đường dẫn/link tới lab và RCA sau khi các thư mục này đã được commit. Không cấu hình Argo CD tự động đồng bộ các manifest **fault injection** vào cluster.
+Repository **chưa chứa playbook để cài lại OpenStack bằng Kolla-Ansible**. Do đó quy trình này bắt đầu **sau khi đã có một OpenStack cloud hoạt động** với các dịch vụ Keystone, Nova, Neutron, Glance và Cinder.
 
-## 4. Yêu cầu chuẩn bị
+Các thành phần chưa dựng hoàn toàn từ Git và cần chuẩn bị riêng:
 
-Trên **Ubuntu Host / máy chạy automation**, cần có:
+1. **OpenStack Kolla-Ansible AIO** và cấu hình mạng provider/external tương ứng host thật.
+2. **Cinder backend LVM** và dịch vụ Cinder đang hoạt động; file-backed loop + VG/thin pool của lab là cấu hình trên OpenStack host, chưa có automation an toàn trong repo.
+3. **OpenStack credentials** (`clouds.yaml`) và file `cloud.conf` dành cho CSI, được cấp phát ngoài Git.
+4. **Terraform local state** nếu cần quản lý tiếp hạ tầng cũ. Trên một cloud mới có thể tạo state mới; **không xóa state của hệ thống đang chạy**.
 
-- OpenStack cloud hoạt động và account đủ quyền tạo network, router, port, floating IP, image, keypair, flavor và VM.
-- `clouds.yaml` có profile `kolla-admin` (hoặc chỉnh `cloud_name` trong Terraform cho phù hợp).
-- Terraform `>= 1.5.0`, Ansible, Python 3, SSH client; OpenStack CLI là công cụ kiểm tra tùy chọn.
-- SSH keypair: ví dụ `~/.ssh/id_ed25519` và `~/.ssh/id_ed25519.pub`.
-- Kết nối tới OpenStack API, các IP quản trị VM và các nguồn tải container images/packages.
-- Đủ compute, memory, network và quota OpenStack cho ba VM.
+> **An toàn:** Chỉ thực hiện phần `terraform apply`, bootstrap Kubernetes và cài CSI khi đang dựng **môi trường mới hoặc có change plan được phê duyệt**. Không chạy lại `pvcreate`, `vgcreate`, xóa volume, `kubeadm reset` hoặc thay đổi HAProxy của OpenStack AIO đang chạy chỉ để tái thực hiện tài liệu.
 
-Kiểm tra OpenStack credential nếu đã cài OpenStack CLI:
+### Máy điều khiển `devops`
+
+Cần có: `git`, `terraform`, `ansible`, `python3`, SSH client, cấu hình `clouds.yaml` với cloud profile `kolla-admin`, và SSH public/private key được cấp quyền hợp lệ. Công cụ OpenStack CLI được dùng để kiểm tra cloud.
 
 ```bash
+# Trên devops (trong môi trường đã cài OpenStack CLI)
 openstack --os-cloud kolla-admin token issue
+openstack --os-cloud kolla-admin service list
+openstack --os-cloud kolla-admin volume service list
 ```
 
-**Mọi lệnh Terraform/Ansible bên dưới chạy từ thư mục gốc repository**, trừ khi có ghi chú khác.
-
-## 5. Hướng dẫn triển khai
-
-### Bước 1 — Tạo tài nguyên nền tảng OpenStack
+Trên OpenStack AIO, kiểm tra backend Cinder nếu sử dụng backend của lab:
 
 ```bash
-cp terraform/openstack/terraform.tfvars.example \
-   terraform/openstack/terraform.tfvars
+sudo vgs cinder-volumes
+sudo lvs -o lv_name,lv_size,data_percent,metadata_percent cinder-volumes
+systemctl status cinder-loop-activate.service --no-pager
 ```
 
-Chỉnh `terraform/openstack/terraform.tfvars` cho đúng môi trường: `cloud_name`, `region`, external network/CIDR/gateway, allocation pool, physical network, SSH public key và các flavor.
+Nếu cloud chưa có Cinder LVM, hãy hoàn thành thiết kế và bootstrap **ở ngoài phạm vi README này** trước khi cài CSI. Không dùng các lệnh tạo VG/PV tùy đoán trên ổ đĩa đang chứa dữ liệu.
+
+## 4. Trình tự triển khai trên môi trường mới
+
+**Máy thực thi:** nếu không ghi khác, các lệnh Terraform/Ansible chạy trên máy `devops`, tại thư mục gốc repository.
+
+### Bước 1 — Clone source và chuẩn bị Terraform
+
+```bash
+cd ~/Downloads
+
+git clone https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
+cd Openstack-Cloud-Native-Private
+
+git switch master
+
+cp terraform/openstack/terraform.tfvars.example terraform/openstack/terraform.tfvars
+cp terraform/k8s-cluster/terraform.tfvars.example terraform/k8s-cluster/terraform.tfvars
+```
+
+Cập nhật **cả hai** file `.tfvars` theo cloud mới. Đặc biệt kiểm tra `cloud_name`, `region`, `external_physical_network`, CIDR/gateway/allocation pool, đường dẫn SSH public key, floating IP pool, `ssh_allowed_cidr` và IP nội bộ của VM.
+
+Không commit credentials, `terraform.tfvars` hoặc các file `terraform.tfstate`.
+
+### Bước 2 — Terraform: OpenStack foundation
 
 ```bash
 terraform -chdir=terraform/openstack init
+terraform -chdir=terraform/openstack fmt -check
 terraform -chdir=terraform/openstack validate
 terraform -chdir=terraform/openstack plan
-terraform -chdir=terraform/openstack apply
 ```
 
-Mặc định ví dụ sử dụng external network `172.30.0.0/24`, gateway `172.30.0.1`, physical network `physnet1`. Đây **không** phải giá trị dùng chung cho mọi hệ thống.
-
-### Bước 2 — Tạo các VM Kubernetes
+Chỉ áp dụng **sau khi xem plan**, chắc chắn đang trỏ tới OpenStack cloud mới và các resource sẽ không đè lên hạ tầng hiện hữu:
 
 ```bash
-cp terraform/k8s-cluster/terraform.tfvars.example \
-   terraform/k8s-cluster/terraform.tfvars
+terraform -chdir=terraform/openstack apply
+terraform -chdir=terraform/openstack output
 ```
 
-Chỉnh `cloud_name`, `region`, địa chỉ IP cố định và đặc biệt `ssh_allowed_cidr` theo mạng quản trị thực tế; không mở SSH cho toàn Internet.
+Module foundation tạo image Ubuntu, flavors, keypair và external network. **External network** phụ thuộc ánh xạ physical network/bridge của Neutron đã được cấu hình đúng trên OpenStack host.
+
+### Bước 3 — Terraform: tenant network và 3 VM Kubernetes
+
+Module `k8s-cluster` đọc output của foundation thông qua `terraform_remote_state` kiểu **local** tại `../openstack/terraform.tfstate`; phải giữ cả hai Terraform module và file state ở đường dẫn được khai báo.
 
 ```bash
 terraform -chdir=terraform/k8s-cluster init
+terraform -chdir=terraform/k8s-cluster fmt -check
 terraform -chdir=terraform/k8s-cluster validate
 terraform -chdir=terraform/k8s-cluster plan
+```
+
+Nếu plan đúng cho môi trường mới:
+
+```bash
 terraform -chdir=terraform/k8s-cluster apply
 terraform -chdir=terraform/k8s-cluster output
 ```
 
-Lưu lại floating IP của control plane trên **Ubuntu Host**:
+Kết quả dự kiến: router + tenant subnet, security groups, ports, 3 Ubuntu VM với fixed IP và floating IP.
+
+### Bước 4 — Cập nhật Ansible inventory, kiểm tra SSH
 
 ```bash
-CONTROL_FLOATING_IP="$(terraform -chdir=terraform/k8s-cluster output -raw control_floating_ip)"
-printf 'Control plane: %s\n' "$CONTROL_FLOATING_IP"
+nano ansible/inventory/hosts.ini
 ```
 
-Cập nhật `ansible/inventory/hosts.ini` bằng floating IP thực tế của ba VM. Biến `node_ip` trong inventory phải khớp với tenant IP của node.
+Thay `ansible_host` bằng floating IP **vừa được Terraform cấp phát**. Ví dụ tên node/fixed IP giữ giống thiết kế hiện tại:
 
-> **Terraform state:** Module `terraform/k8s-cluster` hiện đọc local state từ `../openstack/terraform.tfstate`. Không xóa hoặc di chuyển file state một cách thủ công khi đang sử dụng hạ tầng. Cần backup và thiết kế migration trước khi chuyển sang remote backend.
+```ini
+[k8s_control]
+k8s-control-01 ansible_host=<CONTROL_FLOATING_IP> node_ip=10.20.0.10
 
-### Bước 3 — Cài Kubernetes bằng Ansible
+[k8s_workers]
+k8s-worker-01 ansible_host=<WORKER_FLOATING_IP> node_ip=10.20.0.11
+k8s-monitoring-01 ansible_host=<MONITORING_FLOATING_IP> node_ip=10.20.0.12
 
-Kiểm tra SSH qua Ansible:
+[k8s_cluster:children]
+k8s_control
+k8s_workers
+
+[k8s_cluster:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/id_ed25519
+ansible_python_interpreter=/usr/bin/python3
+```
+
+Kiểm tra kết nối:
 
 ```bash
 ansible -i ansible/inventory/hosts.ini k8s_cluster -m ping
 ```
 
-Chạy lần lượt các playbook:
+Yêu cầu cả 3 node trả `pong`. Nếu không, kiểm tra VM, routing, SSH key và OpenStack security group trước khi chạy tiếp.
+
+### Bước 5 — Ansible: dựng Kubernetes bằng kubeadm
+
+Các playbook chạy **theo thứ tự**:
 
 ```bash
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/prepare-nodes.yml
@@ -247,15 +250,21 @@ ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/install-calico
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/join-workers.yml
 ```
 
-Xác minh Kubernetes control plane và worker nodes:
+Cấu hình đang được khai báo trong source: Kubernetes `v1.36.5`, containerd, Calico `v3.33.0` với VXLAN, Pod CIDR `192.168.0.0/16`, Service CIDR `10.96.0.0/12`.
+
+SSH tới **floating IP thực tế** của control plane:
 
 ```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get nodes -o wide'
+ssh ubuntu@<CONTROL_FLOATING_IP>
+kubectl get nodes -o wide
+kubectl get pods -A
 ```
 
-Cụm hoàn thành bước này khi cả ba node có thể chuyển sang trạng thái `Ready`. Nếu chưa đạt, kiểm tra kubelet, containerd, CNI và network security rules.
+Chỉ chuyển bước tiếp theo khi cả `k8s-control-01`, `k8s-worker-01`, `k8s-monitoring-01` đều `Ready` và Calico hoạt động.
 
-### Bước 4 — Cài Helm, Argo CD và Traefik
+### Bước 6 — Ansible: cài Helm, Argo CD, Traefik
+
+**Trở lại máy `devops`**, trong thư mục repository:
 
 ```bash
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/install-helm.yml
@@ -263,220 +272,227 @@ ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/install-argocd
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/install-traefik.yml
 ```
 
-Theo cấu hình hiện tại, Argo CD và Traefik được đặt trên `k8s-worker-01`. Argo CD cài bằng Helm; Traefik mở HTTP NodePort `30080` và đăng ký IngressClass `traefik`.
+Cấu hình Helm được version-control tại `helm/argocd/values.yaml` và `helm/traefik/values.yaml`. Argo CD và Traefik chạy ở `k8s-worker-01`; Traefik dùng HTTP NodePort `30080` (chưa cấu hình HTTPS public trong lab).
 
-Để kiểm tra Argo CD:
-
-```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get pods -n argocd'
-```
-
-Mật khẩu admin ban đầu (nếu Secret chưa bị xóa hoặc được thay thế sau khi đổi mật khẩu) nằm trong `argocd-initial-admin-secret`. Không ghi hoặc chia sẻ mật khẩu trên GitHub.
-
-### Bước 5 — Triển khai Monitoring và demo-web bằng GitOps
-
-Đăng nhập control plane từ Ubuntu Host:
+**Trên `k8s-control-01`**:
 
 ```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}"
+kubectl -n argocd get pods
+kubectl -n traefik get pods,svc
+kubectl get ingressclass
 ```
 
-Trên **control plane**, gán nhãn node và tạo Secret cho Grafana:
+### Bước 7 — Chuẩn bị Cinder CSI trên cluster mới
+
+**Điều kiện bắt buộc:** Cinder backend của OpenStack hoạt động, Nova VM có khả năng attach volume, và service credentials phù hợp đã được cấp phát. Playbook CSI **không tạo Cinder LVM hoặc credentials**.
+
+Trên **`k8s-control-01`**, clone repository nếu VM chưa có source:
+
+```bash
+cd ~
+git clone https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
+cd ~/Openstack-Cloud-Native-Private
+```
+
+Tạo Secret `cloud.conf` theo template; thay các placeholder bằng credential thực tế, **không commit file thật**:
+
+```bash
+umask 077
+cp helm/storage/cloud.conf.example ~/cloud.conf
+nano ~/cloud.conf
+chmod 600 ~/cloud.conf
+
+kubectl -n kube-system create secret generic cinder-csi-cloud-config \
+  --from-file=cloud.conf="$HOME/cloud.conf"
+```
+
+Chỉ tạo Secret khi chưa tồn tại; trên cluster cũ phải kiểm tra và bảo toàn Secret hiện có, không ghi đè tùy tiện. Bảo quản file credential ngoài repo ở vị trí an toàn.
+
+**Bootstrap StorageClass** trước khi gọi Playbook: Playbook hiện tại kiểm tra `cinder-lvm` đã tồn tại sau khi cài CSI.
+
+```bash
+kubectl apply -f kubernetes/storage/storageclass/cinder-lvm.yaml
+kubectl get storageclass cinder-lvm
+```
+
+Trở lại **`devops`** và chạy Ansible cài/kiểm tra CSI:
+
+```bash
+ansible-playbook -i ansible/inventory/hosts.ini \
+  ansible/playbooks/manage-cinder-csi.yml
+```
+
+Trong **cluster mới chưa có Helm release**, playbook sẽ dùng chart `cpo/openstack-cinder-csi` phiên bản `2.36.2` và Secret đã có. Khi chạy lại trên cluster đang có đúng release, playbook kiểm tra và **không tự nâng cấp**. Xem thêm [Cinder CSI automation](docs/storage/AUTOMATION.md).
+
+**Trên `k8s-control-01`**, xác minh:
+
+```bash
+helm -n kube-system status cinder-csi
+kubectl get csidriver cinder.csi.openstack.org
+kubectl -n kube-system get pods | grep cinder
+kubectl get storageclass cinder-lvm
+```
+
+StorageClass đặt `reclaimPolicy: Retain` và `volumeBindingMode: WaitForFirstConsumer`; PVC Pending **trước khi có Pod tiêu thụ** có thể là hành vi bình thường.
+
+> Không áp dụng `gitops/examples/cinder-csi-application.yaml` vào cluster này: CSI hiện do **Helm** quản lý, không phải Argo CD. Chỉ StorageClass được GitOps quản lý.
+
+### Bước 8 — GitOps: adopt StorageClass và triển khai demo-web
+
+Trên **`k8s-control-01`**, từ `~/Openstack-Cloud-Native-Private`:
+
+```bash
+kubectl diff -f kubernetes/storage/storageclass/cinder-lvm.yaml
+kubectl apply -f gitops/applications/storageclass.yaml
+kubectl apply -f gitops/applications/demo-web.yaml
+kubectl -n argocd get applications
+```
+
+- `storageclass-cinder`: **manual sync**. Sau khi đối chiếu desired state và live StorageClass, Sync trên Argo CD UI nếu cần.
+- `demo-web`: `automated.enabled=true`, `prune=false`, `selfHeal=true`.
+
+Thử ứng dụng từ control plane (với VM worker có IP `10.20.0.11`):
+
+```bash
+kubectl -n demo get pods,svc,ingress
+curl -H 'Host: demo.lab.test' http://10.20.0.11:30080/
+```
+
+### Bước 9 — GitOps: triển khai Monitoring với Persistent Storage
+
+Trên **`k8s-control-01`**:
 
 ```bash
 kubectl label node k8s-monitoring-01 workload=monitoring --overwrite
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+```
 
+Tạo Grafana admin Secret **một lần** (không đặt password trong Git hoặc lịch sử shell):
+
+```bash
 read -rsp 'Grafana admin password: ' GRAFANA_ADMIN_PASSWORD
 printf '\n'
+
 kubectl -n monitoring create secret generic monitoring-grafana-admin \
   --from-literal=admin-user=admin \
   --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD"
+
 unset GRAFANA_ADMIN_PASSWORD
 ```
 
-Nếu Secret đã tồn tại, **không chạy lại lệnh tạo Secret**; quản lý thay đổi credential bằng quy trình riêng. File `helm/monitoring/values.yaml` tham chiếu Secret này.
+Nếu Secret đã tồn tại, không dùng lệnh trên để thay thế. Chart Monitoring sử dụng `existingSecret: monitoring-grafana-admin`.
 
-Bootstrap Prometheus Operator CRDs tương ứng với chart trước khi tạo Argo CD Application, vì Application hiện đặt `skipCrds: true`:
+Bootstrap Prometheus Operator CRDs trước vì Application có `helm.skipCrds: true`:
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 helm show crds prometheus-community/kube-prometheus-stack --version 91.8.1 \
   | kubectl apply --server-side --field-manager=monitoring-crd-bootstrap -f -
-exit
 ```
 
-Trở lại **Ubuntu Host**, chép và áp dụng hai Argo CD Application:
+Áp dụng Application:
 
 ```bash
-scp gitops/applications/monitoring.yaml "ubuntu@${CONTROL_FLOATING_IP}:/tmp/monitoring-application.yaml"
-scp gitops/applications/demo-web.yaml "ubuntu@${CONTROL_FLOATING_IP}:/tmp/demo-web-application.yaml"
-
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl apply -f /tmp/monitoring-application.yaml'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl apply -f /tmp/demo-web-application.yaml'
+kubectl apply -f gitops/applications/monitoring.yaml
+kubectl -n argocd get application monitoring
 ```
 
-Argo CD đọc desired state từ nhánh `master`. Hai Application khai báo `automated.enabled: true`, `selfHeal: true`, nhưng `prune: false` — tài nguyên bị xóa khỏi Git **không tự động bị prune**.
-
-Kiểm tra trạng thái:
-
-```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get applications -n argocd'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get pods -n monitoring -o wide'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get pods -n demo -o wide'
-```
-
-Thử truy cập demo-web từ control plane (trong tenant network):
-
-```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" \
-  'curl -H "Host: demo.lab.test" http://10.20.0.11:30080'
-```
-
-Demo được khai báo qua Ingress host `demo.lab.test`; lệnh `curl` gắn `Host` header để kiểm tra định tuyến mà không cần cấu hình DNS bên ngoài.
-
-## 6. Giám sát và truy cập
-
-### Grafana
-
-Trên **Ubuntu Host**, mở SSH tunnel và giữ phiên này đang chạy:
-
-```bash
-ssh -L 3000:127.0.0.1:3000 "ubuntu@${CONTROL_FLOATING_IP}" \
-  'kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80'
-```
-
-Mở [http://localhost:3000](http://localhost:3000). Tài khoản/credential được lưu trong Secret `monitoring-grafana-admin`. Chỉ đọc mật khẩu khi cần thiết và tránh ghi lại vào lịch sử lệnh, screenshot hoặc tài liệu công khai.
-
-### Prometheus
-
-Trong terminal khác:
-
-```bash
-ssh -L 9090:127.0.0.1:9090 "ubuntu@${CONTROL_FLOATING_IP}" \
-  'kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090'
-```
-
-Mở [http://localhost:9090/targets](http://localhost:9090/targets) để kiểm tra các scrape targets và trạng thái `UP`/`DOWN`.
-
-### Giới hạn hiện tại
-
-- Prometheus được cấu hình retention **3 ngày** và `retentionSize: 3GiB`.
-- Prometheus, Grafana và Alertmanager hiện đã có PVC qua Cinder CSI (10Gi, 3Gi và 2Gi). Pod restart không thay thế backup định kỳ hoặc disaster recovery.
-- Alertmanager và default rules đã bật nhưng **chưa có receiver thông báo tùy chỉnh** được khai báo trong repo.
-- Các endpoint etcd, kube-controller-manager, kube-scheduler, kube-proxy hiện được tắt giám sát trong cấu hình chart. Cần cấu hình endpoint và quyền truy cập trước khi mở lại.
-- Các thành phần chủ yếu chạy single-replica, không phải high availability.
-
-## 7. Kiểm tra và vận hành
-
-Kiểm tra nhanh:
-
-```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get nodes'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get applications -n argocd'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get pods -n monitoring -o wide'
-ssh "ubuntu@${CONTROL_FLOATING_IP}" 'kubectl get prometheus,alertmanager -n monitoring'
-```
-
-Sau khi sửa playbook, chỉ chạy lại **playbook có liên quan**:
-
-```bash
-ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/PLAYBOOK_NAME.yml
-```
-
-Đối với GitOps, commit thay đổi lên repository sau khi review rồi theo dõi Argo CD reconcile:
-
-```bash
-ssh "ubuntu@${CONTROL_FLOATING_IP}" \
-  'kubectl get applications -n argocd -o wide'
-```
-
-Nếu cần ép một lần đồng bộ thủ công, thực hiện trên Argo CD UI hoặc `argocd app sync <APP_NAME>` sau khi đã cài và đăng nhập Argo CD CLI. Không cần tự patch trực tiếp trường `operation` vào Application trong quy trình thông thường.
-
-## 8. Kubernetes Troubleshooting và SRE (dự kiến tích hợp)
-
-Hai bộ troubleshooting lab đã có trong `labs/kubernetes/troubleshooting/`; cần tiếp tục rà soát an toàn trước khi sử dụng trên cluster:
-
-| Thành phần | Mục đích |
-| --- | --- |
-| `student-blind-labs/` | Bài thực hành phát hiện và điều tra lỗi, không lộ lời giải từ đầu |
-| `operator-fault-injector/` | Chủ động tạo/reset lỗi **chỉ trong namespace lab** với kiểm tra context và xác nhận trước khi thực thi |
-| `sre/runbooks/` | Hướng dẫn xử lý từng nhóm lỗi có thể tái sử dụng |
-| `sre/incidents/` | Báo cáo RCA của từng lần xảy ra sự cố |
-
-Một số tình huống thực hành: `ImagePullBackOff`, `CreateContainerConfigError`, Pod `Pending`, `CrashLoopBackOff`, readiness failure và lỗi định tuyến Service. Danh sách chính thức phải khớp với những scenario thực sự có trong bộ lab khi import.
-
-### Quy trình xử lý sự cố
+**Quan trọng:** `monitoring` có `automated.enabled=false`. Mở Argo CD, kiểm tra Diff rồi chọn **Sync thủ công**, không bật `Force`, `Replace` hay `Prune`. Argo CD sẽ render chart `kube-prometheus-stack` `91.8.1` với:
 
 ```text
-Fault Injection (lab only)
-    -> Detection
-    -> Triage / Evidence Collection
-    -> Root Cause Verification
-    -> Recovery
-    -> Validation
-    -> RCA / Preventive Actions
+helm/monitoring/values.yaml
+helm/monitoring/persistence-grafana.values.yaml
+helm/monitoring/persistence-alertmanager.values.yaml
+helm/monitoring/persistence-prometheus.values.yaml
 ```
 
-Ví dụ, **sau khi** bộ lab đã được copy lên control plane:
+Ba overlay cấp PVC `3Gi + 2Gi + 10Gi` sử dụng `cinder-lvm`. Trên cluster mới, kiểm tra Cinder capacity và quota trước khi Sync.
+
+Theo dõi sau Sync:
 
 ```bash
-cd ~/student-blind-labs
-mkdir -p ~/rca-evidence/INC-001
-
-# triage.sh chỉ in kết quả lên terminal; tee giúp lưu evidence.
-./triage.sh snapshot 2>&1 | tee ~/rca-evidence/INC-001/snapshot.txt
-
-# Chỉ chạy nếu Pod tình huống này đang tồn tại.
-kubectl describe pod inc01-obj01 -n troubleshooting-lab \
-  > ~/rca-evidence/INC-001/pod-describe.txt 2>&1
-kubectl get events -n troubleshooting-lab --sort-by=.lastTimestamp \
-  > ~/rca-evidence/INC-001/events.txt
+kubectl -n argocd get applications
+kubectl -n monitoring get pods,pvc,statefulsets
+kubectl get volumeattachments
 ```
 
-**Lưu ý:** `triage.sh snapshot` **không tạo VM snapshot hoặc backup Kubernetes**; trong phiên bản script đang sử dụng, nó đọc Kubernetes context, liệt kê resources và hiển thị 40 dòng Events cuối. Thu thập bằng chứng trước khi sửa lỗi; loại bỏ IP/credential/dữ liệu nhạy cảm trước khi đưa evidence lên GitHub.
+Yêu cầu: `monitoring` **Synced / Healthy**; Grafana, Prometheus và Alertmanager Ready; cả ba PVC **Bound**; volume CSI tương ứng được attach thành công. Nếu Sync báo lỗi trong lúc StatefulSet vừa được tạo, kiểm tra Pod/PVC/Events/Operator thay vì xóa StatefulSet/PVC ngay.
 
-RCA cần có **Incident Summary, Impact, Detection, Timeline, Evidence, Root Cause, Recovery Verification và Preventive Actions**. Không suy luận lỗi CI/CD pipeline hoặc tác động đến production nếu không có chứng cứ. Tách biệt runbook tổng quát và RCA của một incident cụ thể.
+### Bước 10 — Truy cập hệ thống và kiểm tra end-to-end
 
-## 9. Bảo mật và an toàn cấu hình
+Trên `k8s-control-01`:
 
-- **Repository hiện public**: kiểm tra kỹ thông tin trong inventory, log, screenshot và RCA trước khi commit.
-- Không commit `clouds.yaml`, `terraform.tfvars`, Terraform state/plan, `.env`, kubeconfig, SSH private key hoặc Secret/credential.
-- Backup Terraform state, đặc biệt khi đang dùng local backend và phụ thuộc `terraform_remote_state`.
-- Luôn xem kết quả `terraform plan` trước khi `apply`; thay network hoặc flavor có thể tạo lại VM.
-- Giới hạn `ssh_allowed_cidr` và NodePort access theo mạng quản trị đáng tin cậy; kiểm tra cả OpenStack security groups và firewall.
-- Không tự động chạy fault injector trên production cluster. Dùng namespace, RBAC, context allowlist và bước xác nhận.
-- Bảo vệ nhánh GitOps, review thay đổi và kiểm thử manifest trước khi merge vào `master`.
-- Các câu lệnh ở README là quy trình lab; khi áp dụng cho môi trường thật cần bổ sung backup, HA, quản lý secrets và change control.
+```bash
+kubectl get nodes -o wide
+kubectl -n argocd get applications
+kubectl -n monitoring get pods,pvc
+kubectl get storageclass,csidrivers
+kubectl get volumeattachments
+```
 
-## 10. Lộ trình phát triển
+Từ máy **`devops`**, truy cập Argo CD qua SSH tunnel; thay `<CONTROL_FLOATING_IP>` bằng output Terraform:
 
-| Phase | Hạng mục | Trạng thái theo repository |
-| --- | --- | --- |
-| 1 | OpenStack resources bằng Terraform | Đã có source |
-| 2 | Bootstrap Kubernetes + Calico bằng Ansible | Đã có source |
-| 3 | Helm, Traefik, Argo CD, demo-web | Đã có source |
-| 4 | Prometheus, Grafana, Alertmanager | Đã có source; còn hạn chế storage/alert routing |
-| 5 | Kubernetes Troubleshooting Labs, fault injection, runbooks và RCA | **Dự kiến tích hợp** |
-| 6 | CI validation: `terraform fmt/validate`, `ansible-lint`, Helm/Kubernetes manifest checks | **Dự kiến** |
-| 7 | Log aggregation, custom alerts, SLI/SLO, incident dashboards | **Dự kiến** |
-| 8 | Backup/restore, persistent volumes, disaster recovery và chaos testing có kiểm soát | **Dự kiến** |
+```bash
+ssh -t -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:18080:127.0.0.1:18080 \
+  ubuntu@<CONTROL_FLOATING_IP> \
+  'kubectl -n argocd port-forward svc/argocd-server 18080:443'
+```
 
-**Mục tiêu cuối:** `Provision → Configure → Deploy → Observe → Detect → Troubleshoot → Recover → RCA → Prevent Recurrence`.
+Trình duyệt: **https://localhost:18080** (lab sử dụng chứng chỉ nội bộ).
 
----
+Tunnel Grafana:
 
-> **Ghi chú về tài liệu:** README này mô tả cấu hình từ mã nguồn và quy trình triển khai dự kiến. Để xác nhận trạng thái hệ thống đang chạy, luôn đối chiếu với Terraform outputs, Ansible execution logs, Argo CD Application status và kết quả `kubectl` thực tế.
+```bash
+ssh -t -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:13000:127.0.0.1:13000 \
+  ubuntu@<CONTROL_FLOATING_IP> \
+  'kubectl -n monitoring port-forward svc/monitoring-grafana 13000:80'
+```
 
----
-## Hiện trạng triển khai và CI — 2026-10-14
+Trình duyệt: **http://localhost:13000**.
 
-- **Cinder CSI:** Helm release `cinder-csi` (chart `openstack-cinder-csi` 2.36.2) trong namespace `kube-system`; StorageClass `cinder-lvm` do Argo CD quản lý.
-- **Monitoring persistence:** Grafana 3GiB, Alertmanager 2GiB, Prometheus 10GiB đều sử dụng PVC `cinder-lvm` và đã vượt qua kiểm thử giữ dữ liệu qua Pod restart.
-- **GitOps:** `monitoring` đồng bộ thủ công (`automated.enabled=false`); `demo-web` tự đồng bộ.
-- **Ansible CSI:** [`manage-cinder-csi.yml`](ansible/playbooks/manage-cinder-csi.yml) kiểm tra và tái chạy mà không nâng cấp Helm release hiện hữu nếu chưa cho phép rõ ràng. Xem [Cinder CSI automation](docs/storage/AUTOMATION.md).
-- **CI:** [Infrastructure Validation](.github/workflows/infrastructure-validation.yml) kiểm tra Terraform, Ansible và Helm trên PR. Không cấp thông tin OpenStack/cluster thật cho CI.
-- **SRE:** [`labs/kubernetes/troubleshooting`](labs/kubernetes/troubleshooting) và [`sre/`](sre/) đã tồn tại trong repository.
-- **Còn thiếu:** Kolla-Ansible bootstrap end-to-end, backup/restore ngoài host, HA, OpenStack/Cinder metrics và vận hành production. Thin pool LVM file-backed trên host AIO là môi trường lab.
+Kiểm tra Prometheus API **trên control plane** (giữ terminal port-forward mở):
 
+```bash
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 19090:9090
+```
+
+Trong terminal khác trên control plane:
+
+```bash
+curl -fsSG --data-urlencode 'query=sum(up)' \
+  http://127.0.0.1:19090/api/v1/query
+```
+
+Đối với thử nghiệm tạo PVC mới và đọc/ghi lại dữ liệu, tham khảo [Cinder CSI smoke test](docs/storage/README.md). Đây là bài **opt-in** và có thể để lại volume `Retain`; không triển khai tự động trong GitOps.
+
+## 5. Quy trình thay đổi và CI
+
+```mermaid
+flowchart LR
+    Dev["Thay đổi source"] --> PR["Pull Request"]
+    PR --> CI["GitHub Actions: validate"]
+    CI --> Review["Review và merge master"]
+    Review --> GitOps["Argo CD / Ansible có kiểm soát"]
+    GitOps --> Verify["Kiểm tra trạng thái thực tế"]
+```
+
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) được kích hoạt trên Pull Request / push vào `master`, có ba nhóm validation:
+
+- **Terraform:** `fmt -check`, `init -backend=false`, `validate`.
+- **Ansible:** `--syntax-check`, `ansible-lint` cho Cinder CSI playbook.
+- **Helm:** render Cinder CSI và Monitoring manifests.
+
+CI **không thực hiện** `terraform apply`, `kubectl apply`, `helm upgrade` hoặc truy cập credentials thật. Các thay đổi làm ảnh hưởng StorageClass, CSI, Prometheus PVC hoặc network phải được review trước khi đồng bộ thủ công.
+
+## 6. Giới hạn quan trọng khi dựng lại
+
+- **Không thể dựng toàn bộ OpenStack AIO chỉ từ repository này**: Kolla-Ansible bootstrap, provider bridge, Cinder LVM backend và credential provisioning chưa được quản lý trọn vẹn ở đây.
+- **Terraform state đang dùng local backend**: không chuyển/xóa state của lab hiện tại nếu chưa có kế hoạch migration và backup.
+- **Cinder CSI Playbook là an toàn khi tái chạy trên release phù hợp**, nhưng khi dựng cluster mới vẫn cần Secret Cinder và StorageClass được bootstrap trước.
+- **Monitoring manual sync** là chủ đích bảo vệ dữ liệu: merge Git không tự động rollout monitoring.
+- **Dữ liệu lưu trên PVC không phải backup**: host AIO vẫn là điểm lỗi đơn. Recovery đầy đủ cần backup OpenStack, volume data, Terraform state, Kubernetes config và Secrets.
+
+**Đường đi để dựng lại:** `OpenStack cloud sẵn sàng → Terraform foundation → Terraform 3 VM → Ansible Kubernetes → Helm / Argo CD / Traefik → Cinder CSI → GitOps StorageClass / demo-web → Monitoring PVC → Verification`.
