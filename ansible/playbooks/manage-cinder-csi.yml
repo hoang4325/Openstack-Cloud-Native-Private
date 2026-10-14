@@ -134,6 +134,10 @@
           - --wait
           - --timeout
           - 10m
+      register: cinder_csi_install
+      changed_when: >-
+        'has been installed' in cinder_csi_install.stdout or
+        'has been upgraded' in cinder_csi_install.stdout
       when: release_status.rc != 0 or (cinder_csi_allow_upgrade | bool)
 
     - name: Verify registered CSI driver
