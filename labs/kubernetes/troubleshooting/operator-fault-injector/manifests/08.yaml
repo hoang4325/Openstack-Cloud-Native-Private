@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inc08-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l08
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inc08-obj01
+  template:
+    metadata:
+      labels:
+        app: inc08-obj01
+    spec:
+      containers:
+      - name: main
+        image: nginx:1.27-alpine
+      nodeSelector:
+        ts-lab.invalid/node: none

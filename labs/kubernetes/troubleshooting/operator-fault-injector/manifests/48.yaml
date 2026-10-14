@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inc48-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l48
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inc48-obj01
+  template:
+    metadata:
+      labels:
+        app: inc48-obj01
+    spec:
+      containers:
+      - name: web
+        image: nginx:tag-does-not-exist-troubleshooting

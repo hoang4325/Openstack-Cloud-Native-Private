@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inc26-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l26
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inc26-obj01
+  template:
+    metadata:
+      labels:
+        app: inc26-obj01
+    spec:
+      containers:
+      - name: main
+        image: nginx:1.27-alpine
+      nodeSelector:
+        lab.example.com/dedicated: nonexistent

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inc15-obj01
+  namespace: troubleshooting-lab
+  labels:
+    troubleshooting-case: l15
+spec:
+  selector:
+    app: ts-baseline-web
+  ports:
+  - name: http
+    port: 80
+    targetPort: 9999
