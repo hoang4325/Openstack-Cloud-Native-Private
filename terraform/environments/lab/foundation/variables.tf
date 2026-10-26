@@ -52,8 +52,7 @@ variable "flavors" {
   default = {
     "k8s-small"          = { ram_mb = 2048, vcpus = 2, disk_gb = 20 }
     "k8s-control"        = { ram_mb = 4096, vcpus = 2, disk_gb = 20 }
-    "k8s-monitoring"     = { ram_mb = 6144, vcpus = 4, disk_gb = 40 }
-    "k8s-monitoring-4gb" = { ram_mb = 4096, vcpus = 4, disk_gb = 40 }
+    "k8s-monitoring"     = { ram_mb = 4096, vcpus = 4, disk_gb = 40 }
   }
 }
 
