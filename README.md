@@ -127,6 +127,22 @@ Các thành phần chưa dựng hoàn toàn từ Git và cần chuẩn bị riê
 
 Cần có: `git`, `terraform`, `ansible`, `python3`, SSH client, cấu hình `clouds.yaml` với cloud profile `kolla-admin`, và SSH public/private key được cấp quyền hợp lệ. Công cụ OpenStack CLI được dùng để kiểm tra cloud.
 
+Nếu `OS_CLIENT_CONFIG_FILE` đang trỏ tới file Kolla chỉ root hoặc service account đọc được
+(ví dụ `/etc/kolla/clouds.yaml`), Terraform sẽ lỗi `permission denied`. Hãy yêu cầu quản trị
+viên cấp một bản sao chỉ chứa credential cần dùng cho user thực thi, lưu tại
+`~/.config/openstack/clouds.yaml`, rồi chạy:
+
+```bash
+mkdir -p ~/.config/openstack
+chmod 700 ~/.config/openstack
+chmod 600 ~/.config/openstack/clouds.yaml
+unset OS_CLIENT_CONFIG_FILE
+export OS_CLOUD=kolla-admin
+```
+
+Không nới quyền đọc toàn bộ `/etc/kolla/clouds.yaml` nếu không cần thiết; file này chứa
+thông tin xác thực OpenStack.
+
 ```bash
 # Trên devops (trong môi trường đã cài OpenStack CLI)
 openstack --os-cloud kolla-admin token issue
@@ -158,8 +174,10 @@ cd Openstack-Cloud-Native-Private
 
 git switch master
 
-cp terraform/openstack/terraform.tfvars.example terraform/openstack/terraform.tfvars
-cp terraform/k8s-cluster/terraform.tfvars.example terraform/k8s-cluster/terraform.tfvars
+cp terraform/environments/lab/foundation/terraform.tfvars.example \
+  terraform/environments/lab/foundation/terraform.tfvars
+cp terraform/environments/lab/k8s-cluster/terraform.tfvars.example \
+  terraform/environments/lab/k8s-cluster/terraform.tfvars
 ```
 
 Cập nhật **cả hai** file `.tfvars` theo cloud mới. Đặc biệt kiểm tra `cloud_name`, `region`, `external_physical_network`, CIDR/gateway/allocation pool, đường dẫn SSH public key, floating IP pool, `ssh_allowed_cidr` và IP nội bộ của VM.
@@ -169,37 +187,37 @@ Không commit credentials, `terraform.tfvars` hoặc các file `terraform.tfstat
 ### Bước 2 — Terraform: OpenStack foundation
 
 ```bash
-terraform -chdir=terraform/openstack init
-terraform -chdir=terraform/openstack fmt -check
-terraform -chdir=terraform/openstack validate
-terraform -chdir=terraform/openstack plan
+terraform -chdir=terraform/environments/lab/foundation init
+terraform -chdir=terraform/environments/lab/foundation fmt -check
+terraform -chdir=terraform/environments/lab/foundation validate
+terraform -chdir=terraform/environments/lab/foundation plan
 ```
 
 Chỉ áp dụng **sau khi xem plan**, chắc chắn đang trỏ tới OpenStack cloud mới và các resource sẽ không đè lên hạ tầng hiện hữu:
 
 ```bash
-terraform -chdir=terraform/openstack apply
-terraform -chdir=terraform/openstack output
+terraform -chdir=terraform/environments/lab/foundation apply
+terraform -chdir=terraform/environments/lab/foundation output
 ```
 
 Module foundation tạo image Ubuntu, flavors, keypair và external network. **External network** phụ thuộc ánh xạ physical network/bridge của Neutron đã được cấu hình đúng trên OpenStack host.
 
 ### Bước 3 — Terraform: tenant network và 3 VM Kubernetes
 
-Module `k8s-cluster` đọc output của foundation thông qua `terraform_remote_state` kiểu **local** tại `../openstack/terraform.tfstate`; phải giữ cả hai Terraform module và file state ở đường dẫn được khai báo.
+Environment `k8s-cluster` đọc output của foundation thông qua `terraform_remote_state` kiểu **local** tại `../foundation/terraform.tfstate`; phải giữ cả hai environment và file state ở đường dẫn được khai báo.
 
 ```bash
-terraform -chdir=terraform/k8s-cluster init
-terraform -chdir=terraform/k8s-cluster fmt -check
-terraform -chdir=terraform/k8s-cluster validate
-terraform -chdir=terraform/k8s-cluster plan
+terraform -chdir=terraform/environments/lab/k8s-cluster init
+terraform -chdir=terraform/environments/lab/k8s-cluster fmt -check
+terraform -chdir=terraform/environments/lab/k8s-cluster validate
+terraform -chdir=terraform/environments/lab/k8s-cluster plan
 ```
 
 Nếu plan đúng cho môi trường mới:
 
 ```bash
-terraform -chdir=terraform/k8s-cluster apply
-terraform -chdir=terraform/k8s-cluster output
+terraform -chdir=terraform/environments/lab/k8s-cluster apply
+terraform -chdir=terraform/environments/lab/k8s-cluster output
 ```
 
 Kết quả dự kiến: router + tenant subnet, security groups, ports, 3 Ubuntu VM với fixed IP và floating IP.

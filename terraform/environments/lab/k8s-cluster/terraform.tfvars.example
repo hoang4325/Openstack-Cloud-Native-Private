@@ -31,7 +31,7 @@ nodes = {
   }
   "k8s-monitoring-01" = {
     role                    = "worker"
-    flavor                  = "k8s-monitoring-4gb"
+    flavor                  = "k8s-monitoring"
     fixed_ip                = "10.20.0.12"
     floating_ip_description = "Floating IP for Kubernetes monitoring worker"
   }
