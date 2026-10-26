@@ -50,9 +50,10 @@ variable "flavors" {
     is_public = optional(bool, true)
   }))
   default = {
-    "k8s-small"          = { ram_mb = 2048, vcpus = 2, disk_gb = 20 }
-    "k8s-control"        = { ram_mb = 4096, vcpus = 2, disk_gb = 20 }
-    "k8s-monitoring"     = { ram_mb = 4096, vcpus = 4, disk_gb = 40 }
+    "k8s-small"      = { ram_mb = 2048, vcpus = 2, disk_gb = 20 }
+    "k8s-control"    = { ram_mb = 4096, vcpus = 2, disk_gb = 20 }
+    "k8s-monitoring" = { ram_mb = 4096, vcpus = 4, disk_gb = 40 }
+    "k8s-deploy"     = { ram_mb = 4096, vcpus = 2, disk_gb = 50 }
   }
 }
 
