@@ -136,5 +136,11 @@ variable "nodes" {
       fixed_ip                = "10.20.0.12"
       floating_ip_description = "Floating IP for Kubernetes monitoring worker"
     }
+    "k8s-deploy-01" = {
+      role                    = "worker"
+      flavor                  = "k8s-deploy"
+      fixed_ip                = "10.20.0.13"
+      floating_ip_description = "Floating IP for Kubernetes monitoring worker"
+    }
   }
 }
