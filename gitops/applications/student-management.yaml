@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+
+metadata:
+  name: student-management
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
+    targetRevision: master
+    path: kubernetes/apps/student-management
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: student
+
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false
+
+    syncOptions:
+      - Prune=false
+      - FailOnSharedResource=true
