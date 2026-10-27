@@ -6,17 +6,12 @@
   become: true
   gather_facts: true
 
-  vars:
-    kubernetes_minor: "v1.36"
-    crictl_version: "v1.36.0"
-    crictl_sha256: "83855e114566a8a8c44c548d515670f51de3a5e1da8b2effb59870e2f10c25a3"
-
   tasks:
     - name: Verify CPU architecture
       ansible.builtin.assert:
         that:
           - ansible_facts['architecture'] == 'x86_64'
-        fail_msg: "This crictl archive requires x86_64/amd64"
+        fail_msg: "This playbook requires x86_64/amd64."
 
     - name: Install system prerequisites and containerd
       ansible.builtin.apt:
@@ -31,7 +26,7 @@
 
     - name: Create containerd configuration directory
       ansible.builtin.file:
-        path: /etc/containerd
+        path: "{{ containerd_config_dir }}"
         state: directory
         mode: "0755"
 
@@ -45,11 +40,11 @@
       ansible.builtin.assert:
         that:
           - "'SystemdCgroup = false' in containerd_default.stdout or 'SystemdCgroup = true' in containerd_default.stdout"
-        fail_msg: "Cannot find SystemdCgroup in containerd configuration"
+        fail_msg: "Cannot find SystemdCgroup in containerd configuration."
 
     - name: Configure containerd with systemd cgroups
       ansible.builtin.copy:
-        dest: /etc/containerd/config.toml
+        dest: "{{ containerd_config_path }}"
         content: "{{ containerd_default.stdout | replace('SystemdCgroup = false', 'SystemdCgroup = true') }}\n"
         owner: root
         group: root
@@ -110,25 +105,25 @@
 
     - name: Download official crictl archive
       ansible.builtin.get_url:
-        url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
-        dest: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        url: "{{ crictl_url }}"
+        dest: "/tmp/{{ crictl_archive }}"
         checksum: "sha256:{{ crictl_sha256 }}"
         mode: "0644"
 
     - name: Install crictl executable
       ansible.builtin.unarchive:
-        src: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+        src: "/tmp/{{ crictl_archive }}"
         dest: /usr/local/bin
         remote_src: true
-        creates: /usr/local/bin/crictl
+        creates: "{{ crictl_install_path }}"
         mode: "0755"
 
     - name: Configure crictl to use containerd
       ansible.builtin.copy:
         dest: /etc/crictl.yaml
         content: |
-          runtime-endpoint: unix:///run/containerd/containerd.sock
-          image-endpoint: unix:///run/containerd/containerd.sock
+          runtime-endpoint: "{{ k8s_cri_socket }}"
+          image-endpoint: "{{ k8s_cri_socket }}"
           timeout: 10
           debug: false
         owner: root
@@ -137,7 +132,7 @@
 
     - name: Verify crictl version
       ansible.builtin.command:
-        cmd: crictl --version
+        cmd: "{{ crictl_install_path }} --version"
       register: crictl_result
       changed_when: false
 

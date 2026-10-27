@@ -1,19 +1,11 @@
 
----
 - name: Deploy Argo CD with Helm
   hosts: k8s_control
   become: false
   gather_facts: false
 
-  vars:
-    argocd_chart_version: "10.9.6"
-    argocd_namespace: "argocd"
-
-    values_remote_path: >-
-      /home/ubuntu/helm/argocd/values.yaml
-
   environment:
-    KUBECONFIG: /home/ubuntu/.kube/config
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Verify Kubernetes API
@@ -33,14 +25,18 @@
 
     - name: Create Argo CD configuration directory
       ansible.builtin.file:
-        path: /home/ubuntu/helm/argocd
+        path: "{{ argocd_values_remote_path | dirname }}"
         state: directory
+        owner: ubuntu
+        group: ubuntu
         mode: "0755"
 
     - name: Copy Helm values to control plane
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../helm/argocd/values.yaml"
-        dest: "{{ values_remote_path }}"
+        src: "{{ argocd_values_local_path }}"
+        dest: "{{ argocd_values_remote_path }}"
+        owner: ubuntu
+        group: ubuntu
         mode: "0644"
 
     - name: Add Argo Helm repository
@@ -49,8 +45,8 @@
           - helm
           - repo
           - add
-          - argo
-          - https://argoproj.github.io/argo-helm
+          - "{{ argocd_helm_repo_name }}"
+          - "{{ argocd_helm_repo_url }}"
           - --force-update
       changed_when: false
 
@@ -60,7 +56,7 @@
           - helm
           - repo
           - update
-          - argo
+          - "{{ argocd_helm_repo_name }}"
       changed_when: false
 
     - name: Verify chart version exists
@@ -69,20 +65,32 @@
           - helm
           - show
           - chart
-          - argo/argo-cd
+          - "{{ argocd_helm_repo_name }}/argo-cd"
           - --version
           - "{{ argocd_chart_version }}"
       changed_when: false
 
     - name: Render Argo CD manifests
-      ansible.builtin.shell:
-        cmd: >-
-          helm template argocd argo/argo-cd
-          --version {{ argocd_chart_version }}
-          --namespace {{ argocd_namespace }}
-          -f {{ values_remote_path }}
-          > /tmp/argocd-rendered.yaml
+      ansible.builtin.command:
+        argv:
+          - helm
+          - template
+          - "{{ argocd_release_name }}"
+          - "{{ argocd_helm_repo_name }}/argo-cd"
+          - --version
+          - "{{ argocd_chart_version }}"
+          - --namespace
+          - "{{ argocd_namespace }}"
+          - --values
+          - "{{ argocd_values_remote_path }}"
+      register: argocd_render
       changed_when: false
+
+    - name: Save rendered Argo CD manifests
+      ansible.builtin.copy:
+        content: "{{ argocd_render.stdout }}\n"
+        dest: /tmp/argocd-rendered.yaml
+        mode: "0644"
 
     - name: Install or upgrade Argo CD
       ansible.builtin.command:
@@ -90,15 +98,15 @@
           - helm
           - upgrade
           - --install
-          - argocd
-          - argo/argo-cd
+          - "{{ argocd_release_name }}"
+          - "{{ argocd_helm_repo_name }}/argo-cd"
           - --namespace
           - "{{ argocd_namespace }}"
           - --create-namespace
           - --version
           - "{{ argocd_chart_version }}"
           - --values
-          - "{{ values_remote_path }}"
+          - "{{ argocd_values_remote_path }}"
           - --wait
           - --timeout
           - 10m

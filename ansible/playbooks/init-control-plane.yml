@@ -1,5 +1,3 @@
-
----
 # Khởi tạo control plane Kubernetes bằng kubeadm.
 - name: Initialize Kubernetes Control Plane
   hosts: k8s_control
@@ -12,12 +10,12 @@
         argv:
           - kubeadm
           - init
-          - --kubernetes-version=v1.36.5
-          - --apiserver-advertise-address=10.20.0.10
-          - --pod-network-cidr=192.168.0.0/16
-          - --service-cidr=10.96.0.0/12
-          - --cri-socket=unix:///run/containerd/containerd.sock
-          - --node-name=k8s-control-01
+          - "--kubernetes-version={{ kubernetes_version }}"
+          - "--apiserver-advertise-address={{ node_ip }}"
+          - "--pod-network-cidr={{ k8s_pod_cidr }}"
+          - "--service-cidr={{ k8s_service_cidr }}"
+          - "--cri-socket={{ k8s_cri_socket }}"
+          - "--node-name={{ inventory_hostname }}"
         creates: /etc/kubernetes/admin.conf
 
     - name: Create kubectl configuration directory

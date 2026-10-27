@@ -5,24 +5,24 @@
   become: false
   gather_facts: false
 
-  vars:
-    traefik_chart_version: "39.0.7"
-    traefik_values_remote: "/home/ubuntu/helm/traefik/values.yaml"
-
   environment:
-    KUBECONFIG: /home/ubuntu/.kube/config
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Create Traefik configuration directory
       ansible.builtin.file:
-        path: /home/ubuntu/helm/traefik
+        path: "{{ traefik_values_remote_path | dirname }}"
         state: directory
+        owner: ubuntu
+        group: ubuntu
         mode: "0755"
 
     - name: Upload custom Traefik values
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../helm/traefik/values.yaml"
-        dest: "{{ traefik_values_remote }}"
+        src: "{{ traefik_values_local_path }}"
+        dest: "{{ traefik_values_remote_path }}"
+        owner: ubuntu
+        group: ubuntu
         mode: "0644"
 
     - name: Add official Traefik Helm repository
@@ -31,8 +31,8 @@
           - helm
           - repo
           - add
-          - traefik
-          - https://traefik.github.io/charts
+          - "{{ traefik_helm_repo_name }}"
+          - "{{ traefik_helm_repo_url }}"
           - --force-update
       changed_when: false
 
@@ -42,7 +42,7 @@
           - helm
           - repo
           - update
-          - traefik
+          - "{{ traefik_helm_repo_name }}"
       changed_when: false
 
     - name: Validate and render Traefik chart
@@ -50,16 +50,22 @@
         argv:
           - helm
           - template
-          - traefik
-          - traefik/traefik
+          - "{{ traefik_release_name }}"
+          - "{{ traefik_helm_repo_name }}/traefik"
           - --version
           - "{{ traefik_chart_version }}"
           - --namespace
-          - traefik
+          - "{{ traefik_namespace }}"
           - -f
-          - "{{ traefik_values_remote }}"
-      changed_when: false
+          - "{{ traefik_values_remote_path }}"
       register: rendered_chart
+      changed_when: false
+
+    - name: Save rendered Traefik manifests
+      ansible.builtin.copy:
+        content: "{{ rendered_chart.stdout }}\n"
+        dest: /tmp/traefik-rendered.yaml
+        mode: "0644"
 
     - name: Deploy or upgrade Traefik
       ansible.builtin.command:
@@ -67,15 +73,15 @@
           - helm
           - upgrade
           - --install
-          - traefik
-          - traefik/traefik
+          - "{{ traefik_release_name }}"
+          - "{{ traefik_helm_repo_name }}/traefik"
           - --namespace
-          - traefik
+          - "{{ traefik_namespace }}"
           - --create-namespace
           - --version
           - "{{ traefik_chart_version }}"
           - -f
-          - "{{ traefik_values_remote }}"
+          - "{{ traefik_values_remote_path }}"
           - --wait
           - --timeout
           - 600s
@@ -83,4 +89,4 @@
 
     - name: Show Helm deployment result
       ansible.builtin.debug:
-        var: traefik_result.stdout
+        var: traefik_result.stdout_lines
