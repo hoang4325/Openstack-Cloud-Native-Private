@@ -1,0 +1,16 @@
+---
+# Biến chung cho environment lab. Không lưu credential trong Git.
+project_root: "{{ ansible_config_file | dirname | dirname }}"
+ansible_user: ubuntu
+ansible_python_interpreter: /usr/bin/python3
+k8s_admin_user: ubuntu
+k8s_admin_home: /home/ubuntu
+k8s_kubeconfig: /home/ubuntu/.kube/config
+k8s_cri_socket: unix:///run/containerd/containerd.sock
+k8s_supported_os: Ubuntu
+k8s_supported_os_version: "24.04"
+# Mặc định các workflow chỉ đọc. Bootstrap/install/upgrade cần xác nhận riêng.
+bootstrap_allow_changes: false
+platform_confirm_change: false
+platform_action: verify
+cinder_csi_action: verify

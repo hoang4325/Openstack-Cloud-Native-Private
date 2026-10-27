@@ -1,0 +1,5 @@
+{
+  "k8s-control-01": {"role":"control", "fixed_ip":"10.20.0.10", "floating_ip":"172.30.0.114"},
+  "k8s-worker-01": {"role":"worker", "fixed_ip":"10.20.0.11", "floating_ip":"172.30.0.112"},
+  "k8s-monitoring-01": {"role":"worker", "fixed_ip":"10.20.0.12", "floating_ip":null}
+}

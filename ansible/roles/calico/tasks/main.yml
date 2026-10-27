@@ -1,0 +1,72 @@
+---
+- name: Query existing Calico Installation
+  ansible.builtin.command:
+    argv: [kubectl, get, installation.operator.tigera.io, default, -o, name]
+  register: calico_exists
+  failed_when: false
+  changed_when: false
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+
+- name: Refuse unexpected Calico query errors
+  ansible.builtin.assert:
+    that:
+      - >-
+        calico_exists.rc == 0 or
+        (calico_exists.stderr | default('')) is search('NotFound|doesn.t have a resource type')
+  # Trong cluster mới, CRD có thể chưa được tạo; yêu cầu explicit bootstrap.
+
+- name: Bootstrap Calico only when not already installed
+  when: calico_exists.rc != 0
+  block:
+    - name: Download pinned Calico CRDs
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/v3_projectcalico_org.yaml"
+        dest: /tmp/calico-crds.yaml
+        mode: "0644"
+
+    - name: Download pinned Tigera Operator
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml"
+        dest: /tmp/tigera-operator.yaml
+        mode: "0644"
+
+    - name: Apply Calico CRDs
+      ansible.builtin.command: kubectl apply --server-side -f /tmp/calico-crds.yaml
+      register: calico_crds
+      changed_when: "'created' in calico_crds.stdout or 'configured' in calico_crds.stdout"
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+
+    - name: Apply Tigera Operator
+      ansible.builtin.command: kubectl apply -f /tmp/tigera-operator.yaml
+      register: tigera_apply
+      changed_when: "'created' in tigera_apply.stdout or 'configured' in tigera_apply.stdout"
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+
+    - name: Wait for Installation CRD
+      ansible.builtin.command:
+        argv: [kubectl, wait, --for=condition=Established, crd/installations.operator.tigera.io, --timeout=180s]
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+
+    - name: Render Calico Installation
+      ansible.builtin.template:
+        src: installation.yaml.j2
+        dest: /tmp/calico-installation.yaml
+        mode: "0644"
+
+    - name: Apply new Calico Installation
+      ansible.builtin.command: kubectl apply -f /tmp/calico-installation.yaml
+      register: calico_apply
+      changed_when: "'created' in calico_apply.stdout or 'configured' in calico_apply.stdout"
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+
+- name: Verify Calico Installation is present
+  ansible.builtin.command: kubectl get installation.operator.tigera.io default
+  changed_when: false
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"

@@ -1,0 +1,151 @@
+---
+# Cần biến: release_action, release_name, release_namespace,
+# release_chart, release_chart_name, release_chart_version,
+# release_repo_name, release_repo_url, release_values_local.
+- name: Validate Helm operation
+  ansible.builtin.assert:
+    that:
+      - release_action in ['verify', 'install', 'upgrade']
+      - release_name | length > 0
+      - release_namespace | length > 0
+
+- name: Require explicit approval before any Helm mutation
+  ansible.builtin.assert:
+    that: platform_confirm_change | bool
+    fail_msg: "Helm install/upgrade needs -e platform_confirm_change=true."
+  when: release_action != 'verify'
+
+- name: Check current Helm release list
+  ansible.builtin.command:
+    argv: [helm, list, --all, --namespace, "{{ release_namespace }}", --output, json]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  register: helm_releases
+  changed_when: false
+
+- name: Select this Helm release
+  ansible.builtin.set_fact:
+    helm_matches: "{{ (helm_releases.stdout | from_json) | selectattr('name', 'equalto', release_name) | list }}"
+
+- name: Require unambiguous release state
+  ansible.builtin.assert:
+    that: helm_matches | length <= 1
+
+- name: Refuse absent release in verify/upgrade
+  ansible.builtin.assert:
+    that: helm_matches | length == 1
+    fail_msg: "{{ release_name }} is missing. Only explicit install may create it."
+  when: release_action in ['verify', 'upgrade']
+
+- name: Validate existing release health and chart version
+  ansible.builtin.assert:
+    that:
+      - helm_matches[0].status == 'deployed'
+      - helm_matches[0].chart == (release_chart_name ~ '-' ~ release_chart_version)
+    fail_msg: "{{ release_name }} differs from the pinned chart or is not deployed. Review first."
+  when: helm_matches | length == 1 and release_action != 'upgrade'
+
+- name: Require healthy release before explicit upgrade
+  ansible.builtin.assert:
+    that: helm_matches[0].status == 'deployed'
+  when: helm_matches | length == 1 and release_action == 'upgrade'
+
+- name: Manage Helm release only if explicitly requested
+  when: (release_action == 'install' and helm_matches | length == 0) or release_action == 'upgrade'
+  block:
+    - name: Ensure local Helm values target directory
+      ansible.builtin.file:
+        path: "/tmp/ansible-helm/{{ release_name }}"
+        state: directory
+        mode: '0700'
+
+    - name: Copy nonsecret Helm values
+      ansible.builtin.copy:
+        src: "{{ release_values_local }}"
+        dest: "/tmp/ansible-helm/{{ release_name }}/values.yaml"
+        mode: '0600'
+
+    - name: Register chart repository
+      ansible.builtin.command:
+        argv: [helm, repo, add, "{{ release_repo_name }}", "{{ release_repo_url }}", --force-update]
+      changed_when: false
+
+    - name: Refresh chart repository index
+      ansible.builtin.command:
+        argv: [helm, repo, update, "{{ release_repo_name }}"]
+      changed_when: false
+
+    - name: Render pinned Helm manifests
+      ansible.builtin.command:
+        argv:
+          - helm
+          - template
+          - "{{ release_name }}"
+          - "{{ release_chart }}"
+          - --version
+          - "{{ release_chart_version }}"
+          - --namespace
+          - "{{ release_namespace }}"
+          - --values
+          - "/tmp/ansible-helm/{{ release_name }}/values.yaml"
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+      changed_when: false
+      register: helm_rendered
+      no_log: true
+
+    - name: Install approved NEW Helm release
+      ansible.builtin.command:
+        argv:
+          - helm
+          - upgrade
+          - --install
+          - "{{ release_name }}"
+          - "{{ release_chart }}"
+          - --namespace
+          - "{{ release_namespace }}"
+          - --create-namespace
+          - --version
+          - "{{ release_chart_version }}"
+          - --values
+          - "/tmp/ansible-helm/{{ release_name }}/values.yaml"
+          - --wait
+          - --timeout
+          - 10m
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+      when: release_action == 'install'
+      no_log: true
+
+    - name: Upgrade approved EXISTING Helm release
+      ansible.builtin.command:
+        argv:
+          - helm
+          - upgrade
+          - "{{ release_name }}"
+          - "{{ release_chart }}"
+          - --namespace
+          - "{{ release_namespace }}"
+          - --version
+          - "{{ release_chart_version }}"
+          - --values
+          - "/tmp/ansible-helm/{{ release_name }}/values.yaml"
+          - --wait
+          - --timeout
+          - 10m
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+      when: release_action == 'upgrade'
+      no_log: true
+
+- name: Verify Helm release status after operation
+  ansible.builtin.command:
+    argv: [helm, status, "{{ release_name }}", --namespace, "{{ release_namespace }}", --output, json]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  changed_when: false
+  register: helm_final_status
+
+- name: Assert final Helm release is deployed
+  ansible.builtin.assert:
+    that: (helm_final_status.stdout | from_json).info.status == 'deployed'

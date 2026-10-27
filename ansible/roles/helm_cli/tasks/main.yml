@@ -1,0 +1,31 @@
+---
+- name: Require amd64 Helm installation host
+  ansible.builtin.assert:
+    that: ansible_architecture == 'x86_64'
+
+- name: Download pinned Helm binary with checksum verification
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    checksum: "sha256:https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz.sha256"
+    mode: "0644"
+
+- name: Ensure versioned Helm directory
+  ansible.builtin.file:
+    path: "/opt/helm/{{ helm_version }}"
+    state: directory
+    mode: "0755"
+
+- name: Unpack Helm
+  ansible.builtin.unarchive:
+    src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    dest: "/opt/helm/{{ helm_version }}"
+    remote_src: true
+    creates: "/opt/helm/{{ helm_version }}/linux-amd64/helm"
+
+- name: Install Helm binary
+  ansible.builtin.copy:
+    src: "/opt/helm/{{ helm_version }}/linux-amd64/helm"
+    dest: /usr/local/bin/helm
+    remote_src: true
+    mode: "0755"

@@ -1,0 +1,49 @@
+---
+- name: Install containerd
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, gpg, containerd]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure containerd configuration directory exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Inspect current containerd configuration
+  ansible.builtin.stat:
+    path: /etc/containerd/config.toml
+  register: containerd_config
+
+- name: Generate default containerd configuration for NEW nodes
+  ansible.builtin.command: containerd config default
+  register: containerd_default
+  changed_when: false
+  when: not containerd_config.stat.exists
+
+- name: Set systemd cgroups only when no configuration exists
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    content: "{{ containerd_default.stdout | replace('SystemdCgroup = false', 'SystemdCgroup = true') }}\n"
+    mode: "0644"
+  notify: Restart containerd
+  when: not containerd_config.stat.exists
+
+- name: Read configuration for verification
+  ansible.builtin.slurp:
+    src: /etc/containerd/config.toml
+  register: containerd_existing
+
+- name: Refuse an unexpected containerd cgroup setup
+  ansible.builtin.assert:
+    that:
+      - "(containerd_existing.content | b64decode) is search('SystemdCgroup\\s*=\\s*true')"
+    fail_msg: "Existing containerd config has no SystemdCgroup=true; review manually."
+
+- name: Enable containerd service
+  ansible.builtin.systemd_service:
+    name: containerd
+    enabled: true
+    state: started

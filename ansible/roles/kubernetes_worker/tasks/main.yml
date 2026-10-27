@@ -1,0 +1,66 @@
+---
+- name: Detect existing kubelet configuration
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: worker_conf
+
+- name: Query node registration on control plane
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - get
+      - node
+      - "{{ inventory_hostname }}"
+      - -o
+      - name
+  delegate_to: "{{ groups['k8s_control'][0] }}"
+  register: node_status
+  failed_when: false
+  changed_when: false
+
+- name: Reject Kubernetes API errors unrelated to missing node
+  ansible.builtin.assert:
+    that:
+      - "node_status.rc == 0 or 'NotFound' in (node_status.stderr | default(''))"
+    fail_msg: "Cannot determine node registration safely; inspect control-plane API."
+
+- name: Refuse inconsistent worker state
+  ansible.builtin.assert:
+    that:
+      - "worker_conf.stat.exists == (node_status.rc == 0)"
+    fail_msg: "kubelet.conf and Kubernetes API disagree; manual recovery required."
+
+- name: Confirm API port is reachable for new workers
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[groups['k8s_control'][0]].node_ip }}"
+    port: 6443
+    timeout: 30
+  when: not worker_conf.stat.exists
+
+- name: Create short-lived kubeadm join token
+  ansible.builtin.command:
+    argv: [kubeadm, token, create, --ttl=20m, --print-join-command]
+  delegate_to: "{{ groups['k8s_control'][0] }}"
+  register: kubeadm_join
+  no_log: true
+  when: not worker_conf.stat.exists
+
+- name: Join new worker
+  ansible.builtin.command:
+    argv: "{{ kubeadm_join.stdout.split() + ['--cri-socket=' ~ k8s_cri_socket, '--node-name=' ~ inventory_hostname] }}"
+    creates: /etc/kubernetes/kubelet.conf
+  no_log: true
+  when: not worker_conf.stat.exists
+
+- name: Wait until worker is Ready
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - wait
+      - --for=condition=Ready
+      - "node/{{ inventory_hostname }}"
+      - --timeout=300s
+  delegate_to: "{{ groups['k8s_control'][0] }}"
+  changed_when: false

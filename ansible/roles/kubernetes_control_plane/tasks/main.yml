@@ -1,0 +1,46 @@
+---
+- name: Inspect control-plane kubeadm state
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: control_plane_admin_conf
+
+- name: Initialize Kubernetes only on a new control plane
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - "--kubernetes-version={{ k8s_version }}"
+      - "--apiserver-advertise-address={{ node_ip }}"
+      - "--pod-network-cidr={{ k8s_pod_cidr }}"
+      - "--service-cidr={{ k8s_service_cidr }}"
+      - "--cri-socket={{ k8s_cri_socket }}"
+      - "--node-name={{ inventory_hostname }}"
+    creates: /etc/kubernetes/admin.conf
+  when: not control_plane_admin_conf.stat.exists
+
+- name: Ensure kubectl directory
+  ansible.builtin.file:
+    path: "{{ k8s_admin_home }}/.kube"
+    state: directory
+    owner: "{{ k8s_admin_user }}"
+    group: "{{ k8s_admin_user }}"
+    mode: "0700"
+
+- name: Install kubectl config for admin user
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ k8s_kubeconfig }}"
+    remote_src: true
+    owner: "{{ k8s_admin_user }}"
+    group: "{{ k8s_admin_user }}"
+    mode: "0600"
+  no_log: true
+
+- name: Wait for Kubernetes API readiness
+  ansible.builtin.command:
+    argv: [kubectl, --kubeconfig=/etc/kubernetes/admin.conf, get, --raw=/readyz]
+  register: api_readiness
+  changed_when: false
+  retries: 15
+  delay: 10
+  until: api_readiness.rc == 0

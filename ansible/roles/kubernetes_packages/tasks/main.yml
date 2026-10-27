@@ -1,0 +1,82 @@
+---
+- name: Verify CPU architecture
+  ansible.builtin.assert:
+    that: ansible_architecture == 'x86_64'
+
+- name: Ensure APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download Kubernetes signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes.asc
+    mode: "0644"
+
+- name: Configure Kubernetes apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: "deb [signed-by=/etc/apt/keyrings/kubernetes.asc] https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/deb/ /\n"
+    mode: "0644"
+
+- name: Refresh Kubernetes APT metadata
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check target Kubernetes package availability
+  ansible.builtin.command: apt-cache madison kubeadm
+  register: kubeadm_versions
+  changed_when: false
+
+- name: Require selected Kubernetes package version
+  ansible.builtin.assert:
+    that:
+      - k8s_apt_version in kubeadm_versions.stdout
+    fail_msg: "kubeadm {{ k8s_apt_version }} unavailable; inspect apt-cache madison kubeadm."
+
+- name: Install pinned Kubernetes packages
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ k8s_apt_version }}"
+      - "kubeadm={{ k8s_apt_version }}"
+      - "kubectl={{ k8s_apt_version }}"
+    state: present
+    update_cache: true
+
+- name: Hold Kubernetes packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [kubelet, kubeadm, kubectl]
+
+- name: Enable kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true
+
+- name: Download pinned crictl
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+    checksum: "sha256:{{ crictl_sha256 }}"
+    mode: "0644"
+
+- name: Install crictl if missing
+  ansible.builtin.unarchive:
+    src: "/tmp/crictl-{{ crictl_version }}-linux-amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    creates: /usr/local/bin/crictl
+
+- name: Configure crictl
+  ansible.builtin.copy:
+    dest: /etc/crictl.yaml
+    content: |
+      runtime-endpoint: {{ k8s_cri_socket }}
+      image-endpoint: {{ k8s_cri_socket }}
+      timeout: 10
+      debug: false
+    mode: "0644"

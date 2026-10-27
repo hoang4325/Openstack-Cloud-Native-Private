@@ -1,0 +1,30 @@
+---
+- name: Read-only verification of Kubernetes and platform
+  hosts: k8s_control
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Query Kubernetes cluster nodes
+      ansible.builtin.command: kubectl get nodes -o json
+      environment:
+        KUBECONFIG: "{{ k8s_kubeconfig }}"
+      register: cluster_nodes
+      changed_when: false
+
+    - name: Verify the declared inventory nodes are registered and Ready
+      ansible.builtin.assert:
+        that:
+          - item in ((cluster_nodes.stdout | from_json).items | map(attribute='metadata.name') | list)
+          - >-
+            ((cluster_nodes.stdout | from_json).items
+             | selectattr('metadata.name', 'equalto', item) | first).status.conditions
+             | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first == 'True'
+      loop: "{{ groups['k8s_control'] + groups['k8s_workers'] }}"
+
+- name: Verify Helm releases without modifications
+  hosts: k8s_control
+  gather_facts: false
+  roles: [argocd, traefik, cinder_csi, monitoring_validate]
+  vars:
+    platform_action: verify
+    cinder_csi_action: verify

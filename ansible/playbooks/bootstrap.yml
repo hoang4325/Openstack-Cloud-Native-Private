@@ -1,0 +1,35 @@
+---
+- name: Preflight for intentional NEW cluster bootstrap
+  hosts: k8s_cluster
+  gather_facts: false
+  tasks:
+    - name: Require explicit bootstrap authorization
+      ansible.builtin.assert:
+        that: bootstrap_allow_changes | bool
+        fail_msg: 'Bootstrap mutates nodes. Use -e bootstrap_allow_changes=true for a NEW cluster.'
+
+- name: Configure Ubuntu and Kubernetes packages on new nodes
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  roles: [common, containerd, kubernetes_packages]
+
+- name: Initialize control plane (only if not already initialized)
+  hosts: k8s_control
+  become: true
+  roles: [kubernetes_control_plane]
+
+- name: Install Calico on a new cluster
+  hosts: k8s_control
+  become: false
+  roles: [calico]
+
+- name: Join workers and verify readiness
+  hosts: k8s_workers
+  become: true
+  roles: [kubernetes_worker]
+
+- name: Install Helm CLI on control plane
+  hosts: k8s_control
+  become: true
+  roles: [helm_cli]

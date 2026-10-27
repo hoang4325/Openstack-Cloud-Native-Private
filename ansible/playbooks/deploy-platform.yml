@@ -1,0 +1,11 @@
+---
+# Default: verify. Install/upgrade require platform_confirm_change=true.
+- name: Manage Argo CD and Traefik with explicit policy
+  hosts: k8s_control
+  gather_facts: false
+  become: false
+  roles:
+    - role: argocd
+      tags: [argocd]
+    - role: traefik
+      tags: [traefik]
