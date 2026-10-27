@@ -17,7 +17,7 @@
 
 - name: Check current Helm release list
   ansible.builtin.command:
-    argv: [helm, list, --all, --namespace, "{{ release_namespace }}", --output, json]
+    argv: [helm, list, --namespace, "{{ release_namespace }}", --output, json]
   environment:
     KUBECONFIG: "{{ k8s_kubeconfig }}"
   register: helm_releases
