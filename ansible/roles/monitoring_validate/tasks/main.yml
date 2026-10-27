@@ -1,0 +1,23 @@
+---
+- name: Read monitoring PVCs without modification
+  ansible.builtin.command:
+    argv: [kubectl, -n, monitoring, get, pvc, -o, json]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  register: monitoring_pvcs
+  changed_when: false
+
+- name: Extract Cinder-backed monitoring PVCs
+  ansible.builtin.set_fact:
+    monitoring_cinder_pvcs: >-
+      {{ (monitoring_pvcs.stdout | from_json).items
+         | selectattr('spec.storageClassName', 'defined')
+         | selectattr('spec.storageClassName', 'equalto', 'cinder-lvm')
+         | list }}
+
+- name: Verify expected monitoring storage is Bound
+  ansible.builtin.assert:
+    that:
+      - monitoring_cinder_pvcs | length >= 3
+      - monitoring_cinder_pvcs | selectattr('status.phase', 'equalto', 'Bound') | list | length == monitoring_cinder_pvcs | length
+    fail_msg: 'Expected at least 3 Cinder PVCs, all Bound; inspect monitoring namespace.'

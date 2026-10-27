@@ -1,0 +1,65 @@
+---
+- name: Verify Cinder CSI Secret exists (without revealing it)
+  ansible.builtin.command:
+    argv: [kubectl, -n, kube-system, get, secret, cinder-csi-cloud-config, -o, name]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  changed_when: false
+  no_log: true
+
+- name: Verify Secret contains cloud.conf
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - -n
+      - kube-system
+      - get
+      - secret
+      - cinder-csi-cloud-config
+      - -o
+      - 'go-template={% raw %}{{ if index .data "cloud.conf" }}yes{{ else }}no{{ end }}{% endraw %}'
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  changed_when: false
+  register: cinder_key
+  no_log: true
+
+- name: Refuse missing CSI credential data
+  ansible.builtin.assert:
+    that: cinder_key.stdout == 'yes'
+  no_log: true
+
+- name: Manage Cinder CSI Helm release safely
+  ansible.builtin.include_role:
+    name: helm_release
+  vars:
+    release_action: "{{ cinder_csi_action }}"
+    release_name: cinder-csi
+    release_namespace: kube-system
+    release_chart: cpo/openstack-cinder-csi
+    release_chart_name: openstack-cinder-csi
+    release_chart_version: "{{ cinder_csi_chart_version }}"
+    release_repo_name: cpo
+    release_repo_url: https://kubernetes.github.io/cloud-provider-openstack
+    release_values_local: "{{ project_root }}/helm/storage/cinder-csi-values.yaml"
+
+- name: Verify Cinder CSI driver is registered
+  ansible.builtin.command:
+    argv: [kubectl, get, csidriver, cinder.csi.openstack.org, -o, name]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  changed_when: false
+
+- name: Verify existing GitOps-managed StorageClass
+  ansible.builtin.command:
+    argv: [kubectl, get, storageclass, cinder-lvm, -o, json]
+  environment:
+    KUBECONFIG: "{{ k8s_kubeconfig }}"
+  changed_when: false
+  register: cinder_storageclass
+
+- name: Prevent accidental change to StorageClass reclaim policy
+  ansible.builtin.assert:
+    that:
+      - (cinder_storageclass.stdout | from_json).reclaimPolicy == 'Retain'
+      - (cinder_storageclass.stdout | from_json).provisioner == 'cinder.csi.openstack.org'

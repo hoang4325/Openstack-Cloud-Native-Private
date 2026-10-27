@@ -1,0 +1,14 @@
+---
+- name: Manage or verify Traefik
+  ansible.builtin.include_role:
+    name: helm_release
+  vars:
+    release_action: "{{ platform_action }}"
+    release_name: traefik
+    release_namespace: traefik
+    release_chart: traefik/traefik
+    release_chart_name: traefik
+    release_chart_version: "{{ traefik_chart_version }}"
+    release_repo_name: traefik
+    release_repo_url: https://traefik.github.io/charts
+    release_values_local: "{{ project_root }}/helm/traefik/values.yaml"

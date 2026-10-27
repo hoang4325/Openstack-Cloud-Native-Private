@@ -1,0 +1,14 @@
+---
+- name: Manage or verify Argo CD
+  ansible.builtin.include_role:
+    name: helm_release
+  vars:
+    release_action: "{{ platform_action }}"
+    release_name: argocd
+    release_namespace: argocd
+    release_chart: argo/argo-cd
+    release_chart_name: argo-cd
+    release_chart_version: "{{ argocd_chart_version }}"
+    release_repo_name: argo
+    release_repo_url: https://argoproj.github.io/argo-helm
+    release_values_local: "{{ project_root }}/helm/argocd/values.yaml"

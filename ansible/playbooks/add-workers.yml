@@ -1,0 +1,16 @@
+---
+# Chạy với --limit k8s-deploy-01, KHÔNG chạy trên toàn bộ cluster đang hoạt động.
+- name: Add explicitly selected NEW workers
+  hosts: k8s_workers
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Require explicit approval and a restricted host selection
+      ansible.builtin.assert:
+        that:
+          - bootstrap_allow_changes | bool
+          - ansible_limit is defined
+          - ansible_play_hosts_all | length < groups['k8s_workers'] | length
+        fail_msg: 'Use --limit <new-worker> -e bootstrap_allow_changes=true.'
+      run_once: true
+  roles: [common, containerd, kubernetes_packages, kubernetes_worker]
