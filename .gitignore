@@ -23,3 +23,7 @@ __pycache__/
 *.pyc
 *.log
 *.bak
+
+# Local Ansible and lab files
+/.ansible/
+/labs/
