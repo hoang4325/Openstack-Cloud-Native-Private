@@ -1,4 +1,0 @@
----
-argocd_chart_version: "10.9.6"
-traefik_chart_version: "39.0.7"
-cinder_csi_chart_version: "2.36.2"
