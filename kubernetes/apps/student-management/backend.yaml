@@ -39,7 +39,7 @@ spec:
 
       containers:
         - name: api
-          image: hoang4325/student-app-api:latest
+          image: hoang4325/student-app-api:9
           imagePullPolicy: Always
 
           ports:
