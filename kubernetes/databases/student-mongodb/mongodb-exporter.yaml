@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-exporter
+  namespace: student
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb-exporter
+  template:
+    metadata:
+      labels:
+        app: mongodb-exporter
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-monitoring-01
+
+      containers:
+        - name: mongodb-exporter
+          image: percona/mongodb_exporter:0.39
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: MONGODB_URI
+              value: "mongodb://mongodb.student.svc.cluster.local:27017/admin?authSource=admin"
+
+            - name: MONGODB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: student-mongo-auth
+                  key: username
+
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: student-mongo-auth
+                  key: password
+
+          ports:
+            - name: metrics
+              containerPort: 9216
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-exporter
+  namespace: student
+  labels:
+    app: mongodb-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: mongodb-exporter
+  ports:
+    - name: metrics
+      port: 9216
+      targetPort: metrics
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mongodb-exporter
+  namespace: student
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - student
+  selector:
+    matchLabels:
+      app: mongodb-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
