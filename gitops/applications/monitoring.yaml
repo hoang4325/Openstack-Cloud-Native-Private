@@ -67,7 +67,14 @@ spec:
           alertmanagerSpec:
             nodeSelector:
               kubernetes.io/hostname: k8s-monitoring-01
+        
+        alertmanagerConfigSelector:
+          matchLabels:
+            alertmanager: student-telegram
 
+        alertmanagerConfigNamespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: student
             storage:
               volumeClaimTemplate:
                 spec:
