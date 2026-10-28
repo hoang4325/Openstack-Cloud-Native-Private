@@ -26,7 +26,7 @@ spec:
 
       containers:
         - name: frontend
-          image: hoang4325/student-app-web:latest
+          image: hoang4325/student-app-web:2
           imagePullPolicy: Always
 
           ports:
