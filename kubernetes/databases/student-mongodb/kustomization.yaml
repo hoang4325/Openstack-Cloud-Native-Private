@@ -7,3 +7,4 @@ resources:
   - mongodb.yaml
   - mongodb-backup-cronjob.yaml
   - mongodb-exporter.yaml
+  - mongodb-alerts.yaml

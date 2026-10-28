@@ -1,0 +1,63 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mongodb-alerts
+  namespace: student
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: mongodb.rules
+      rules:
+        - alert: MongoDBDown
+          expr: mongodb_up{namespace="student",job="mongodb-exporter"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MongoDB không kết nối được"
+            description: "MongoDB Exporter không kết nối được MongoDB trong 2 phút."
+
+        - alert: MongoDBExporterDown
+          expr: |
+            (up{namespace="student",job="mongodb-exporter"} == 0)
+            or absent(up{namespace="student",job="mongodb-exporter"})
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MongoDB Exporter không hoạt động"
+            description: "Prometheus không scrape được MongoDB Exporter."
+
+        - alert: MongoDBPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="student",
+              pod="mongodb-0",
+              container="mongodb"
+            }[10m]) > 2
+          labels:
+            severity: warning
+          annotations:
+            summary: "MongoDB Pod restart nhiều lần"
+            description: "MongoDB restart quá 2 lần trong 10 phút."
+
+        - alert: MongoDBPVCUsageHigh
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                namespace="student",
+                persistentvolumeclaim="mongo-data-mongodb-0"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                namespace="student",
+                persistentvolumeclaim="mongo-data-mongodb-0"
+              }
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MongoDB PVC gần đầy"
+            description: "PVC MongoDB đã sử dụng trên 80% dung lượng."
