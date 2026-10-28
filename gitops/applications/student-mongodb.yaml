@@ -1,0 +1,16 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: student-mongodb
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/hoang4325/Openstack-Cloud-Native-Private.git
+    targetRevision: master
+    path: kubernetes/databases/student-mongodb
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: student
