@@ -1,5 +1,7 @@
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
+
 metadata:
   name: monitoring
   namespace: argocd
@@ -16,11 +18,23 @@ spec:
       releaseName: monitoring
 
       valuesObject:
+
+        # Prometheus Operator
         prometheusOperator:
           nodeSelector:
             kubernetes.io/hostname: k8s-monitoring-01
 
+        # Prometheus
         prometheus:
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - prometheus.lab.internal
+            paths:
+              - /
+            pathType: Prefix
+
           prometheusSpec:
             nodeSelector:
               kubernetes.io/hostname: k8s-monitoring-01
@@ -46,6 +60,7 @@ spec:
                     requests:
                       storage: 3Gi
 
+        # Grafana
         grafana:
           enabled: true
 
@@ -62,19 +77,29 @@ spec:
           service:
             type: ClusterIP
 
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - grafana.lab.internal
+            path: /
+
+        # Alertmanager
         alertmanager:
           enabled: true
+
           alertmanagerSpec:
             nodeSelector:
               kubernetes.io/hostname: k8s-monitoring-01
-        
-        alertmanagerConfigSelector:
-          matchLabels:
-            alertmanager: student-telegram
 
-        alertmanagerConfigNamespaceSelector:
-          matchLabels:
-            kubernetes.io/metadata.name: student
+            alertmanagerConfigSelector:
+              matchLabels:
+                alertmanager: student-telegram
+
+            alertmanagerConfigNamespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: student
+
             storage:
               volumeClaimTemplate:
                 spec:
