@@ -5,3 +5,4 @@ namespace: student
 
 resources:
   - mongodb.yaml
+  - mongodb-backup-cronjob.yaml

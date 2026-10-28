@@ -1,0 +1,114 @@
+# MongoDB backup qua NFS/Tailscale. Giai doan dau: chay thu thu cong, chua tu dong.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongodb-daily-backup
+  namespace: student
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Ho_Chi_Minh
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  suspend: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          # Node nay co Tailscale (100.77.144.40), duoc NFS cho phep truy cap.
+          nodeSelector:
+            kubernetes.io/hostname: k8s-deploy-01
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: mongodump
+              image: mongo:5.0
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: MONGO_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: student-mongo-auth
+                      key: username
+                - name: MONGO_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: student-mongo-auth
+                      key: password
+              command:
+                - /bin/sh
+                - -ec
+              args:
+                - |
+                  # Khong bat set -x: tranh lo thong tin dang nhap ra logs.
+                  umask 077
+                  cd /backup
+
+                  # Khong bao gio ghi vao local disk neu NFS khong duoc mount.
+                  awk '$2 == "/backup" && $3 ~ /^nfs/ {found=1} END {exit !found}' /proc/mounts || {
+                    echo 'ERROR: /backup khong phai NFS mount' >&2
+                    exit 1
+                  }
+
+                  # NFS hien chi con ~3.5 GiB, can de lai mot khoang an toan.
+                  free_kb="$(df -Pk /backup | awk 'NR==2 {print $4}')"
+                  if [ -z "$free_kb" ] || [ "$free_kb" -lt 262144 ]; then
+                    echo 'ERROR: NFS con duoi 256 MiB; dung backup' >&2
+                    exit 1
+                  fi
+
+                  name="mongodb-$(date -u +%Y%m%dT%H%M%SZ)-${POD_NAME}.archive.gz"
+                  tmp=".${name}.partial"
+                  sha_tmp=".${name}.sha256.partial"
+                  completed=0
+                  cleanup() {
+                    rm -f "$tmp" "$sha_tmp"
+                    if [ "$completed" -ne 1 ]; then rm -f "$name"; fi
+                  }
+                  trap cleanup EXIT
+
+                  # Khong gioi han --db: backup toan bo databases co quyen doc.
+                  mongodump \
+                    --host mongodb.student.svc.cluster.local \
+                    --port 27017 \
+                    --username "$MONGO_USER" \
+                    --password "$MONGO_PASSWORD" \
+                    --authenticationDatabase admin \
+                    --archive="$tmp" \
+                    --gzip
+
+                  test -s "$tmp"
+                  mv "$tmp" "$name"
+                  sha256sum "$name" > "$sha_tmp"
+                  mv "$sha_tmp" "${name}.sha256"
+                  completed=1
+                  echo "BACKUP_OK: $name"
+                  echo "BACKUP_SIZE_BYTES: $(wc -c < "$name")"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              nfs:
+                server: 100.127.56.99
+                path: /srv/nfs/mongodb-backups
