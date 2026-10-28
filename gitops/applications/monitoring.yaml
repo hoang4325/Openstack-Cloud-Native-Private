@@ -1,0 +1,89 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 92.14.1
+
+    helm:
+      releaseName: monitoring
+
+      valuesObject:
+        prometheusOperator:
+          nodeSelector:
+            kubernetes.io/hostname: k8s-monitoring-01
+
+        prometheus:
+          prometheusSpec:
+            nodeSelector:
+              kubernetes.io/hostname: k8s-monitoring-01
+
+            retention: 3d
+            retentionSize: 2GiB
+
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: cinder-lvm
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 3Gi
+
+        grafana:
+          enabled: true
+
+          nodeSelector:
+            kubernetes.io/hostname: k8s-monitoring-01
+
+          persistence:
+            enabled: true
+            storageClassName: cinder-lvm
+            accessModes:
+              - ReadWriteOnce
+            size: 1Gi
+
+          service:
+            type: ClusterIP
+
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            nodeSelector:
+              kubernetes.io/hostname: k8s-monitoring-01
+
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: cinder-lvm
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 1Gi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - Prune=false
+      - ServerSideApply=true
