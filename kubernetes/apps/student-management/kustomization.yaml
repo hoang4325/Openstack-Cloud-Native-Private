@@ -7,3 +7,4 @@ resources:
   - backend.yaml
   - frontend.yaml
   - ingress.yaml
+  - backend-servicemonitor.yaml

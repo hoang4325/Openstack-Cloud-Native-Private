@@ -3,6 +3,8 @@ kind: Service
 metadata:
   name: api
   namespace: student
+  labels:
+    app: student-api
 spec:
   type: ClusterIP
   selector:
