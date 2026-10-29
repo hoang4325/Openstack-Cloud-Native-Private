@@ -9,7 +9,7 @@ spec:
   timeZone: Asia/Ho_Chi_Minh
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 600
-  suspend: true
+  suspend: false
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
@@ -97,6 +97,19 @@ spec:
                   completed=1
                   echo "BACKUP_OK: $name"
                   echo "BACKUP_SIZE_BYTES: $(wc -c < "$name")"
+
+                  # Retention: chi xoa backup cu hon 30 ngay.
+                  # Chi xoa archive co file checksum di kem.
+                  find /backup -maxdepth 1 -type f \
+                    -name 'mongodb-*.archive.gz' \
+                    -mtime +29 -print |
+                  while IFS= read -r old; do
+                    checksum="${old}.sha256"
+                    if [ -f "$checksum" ]; then
+                      rm -f -- "$old" "$checksum"
+                      echo "RETENTION_DELETED: $(basename "$old")"
+                    fi
+                  done
               resources:
                 requests:
                   cpu: 100m

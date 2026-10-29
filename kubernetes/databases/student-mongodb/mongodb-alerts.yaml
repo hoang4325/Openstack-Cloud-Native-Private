@@ -61,3 +61,66 @@ spec:
           annotations:
             summary: "MongoDB PVC gần đầy"
             description: "PVC MongoDB đã sử dụng trên 80% dung lượng."
+
+        - alert: MongoDBBackupJobFailed
+          expr: |
+            (
+              kube_job_failed{
+                namespace="student",
+                job_name=~"mongodb-daily-backup-.*",
+                condition="true"
+              } == 1
+            )
+            and on(namespace, job_name)
+            (
+              time() - kube_job_status_start_time{
+                namespace="student",
+                job_name=~"mongodb-daily-backup-.*"
+              } < 86400
+            )
+          for: 1m
+          labels:
+            severity: critical
+            namespace: student
+          annotations:
+            summary: "MongoDB Backup Failed"
+            description: "Job backup MongoDB trong 24h qua da that bai."
+
+        - alert: MongoDBBackupStale
+          expr: |
+            (
+              (
+                time() - kube_cronjob_status_last_successful_time{
+                  namespace="student",
+                  cronjob="mongodb-daily-backup"
+                } > 93600
+              )
+              or
+              (
+                (
+                  time() - kube_cronjob_status_last_schedule_time{
+                    namespace="student",
+                    cronjob="mongodb-daily-backup"
+                  } > 3600
+                )
+                unless on(namespace, cronjob)
+                kube_cronjob_status_last_successful_time{
+                  namespace="student",
+                  cronjob="mongodb-daily-backup"
+                }
+              )
+            )
+            and on(namespace, cronjob)
+            (
+              kube_cronjob_spec_suspend{
+                namespace="student",
+                cronjob="mongodb-daily-backup"
+              } == 0
+            )
+          for: 10m
+          labels:
+            severity: critical
+            namespace: student
+          annotations:
+            summary: "MongoDB Backup Stale"
+            description: "Khong co backup thanh cong dung han."
